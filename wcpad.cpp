@@ -39,33 +39,22 @@ void update_contours(int)
 	CvSeq* contour; 
 
 	int i = 0; 
-	int points = -1; 
 	while ((contour = cvFindNextContour(scanner)) != NULL)
 	{
-		if (i == g_currentContour)
+		CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
+
+		if (poly->total == 4)
 		{
-			points = contour->total;
-			cvDrawContours(g_contours, contour, colors[0], colors[1], 0); 
-
-			CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
-
-			for (int j = 0; j < contour->total; ++j)
-			{
-				CvPoint* vertex = (CvPoint*) cvGetSeqElem(contour, j); 
-				cvCircle(g_contours, *vertex, 2, colors[3]); 
-			}
-			
-			for (int j = 0; j < poly->total; ++j)
+			for (int j = 0; j < 4; ++j)
 			{
 				CvPoint* vertex = (CvPoint*) cvGetSeqElem(poly, j); 
-				cvCircle(g_contours, *vertex, 2, colors[4]); 
+				CvPoint* nextVertex = (CvPoint*) cvGetSeqElem(poly, (j+1)%4);
+				//cvCircle(g_contours, vertex, 2, colors[(i+1)%6]); 
+				cvLine(g_contours, *vertex, *nextVertex, colors[i%6]); 
 			}
-
+			++i; 
 		}
-		//CvMat* points = cvCreateMat(contour->total, 1, CV_); 
-		//cvCvtSeqToArray(contour, (void*)&(points->data)); 
-		//printf("Contour %d has area %lf\n", i, cvContourArea(points)); 
-		++i; 
+
 	}
 	CvSeq* contours = cvEndFindContours(&scanner); 
 #else
@@ -82,7 +71,7 @@ void update_contours(int)
 	//cvDrawContours(g_contours, contours, cvScalar(255, 255, 0), cvScalar(255, 0, 255), g_maxDepth, CV_FILLED); 
 	//cvDrawContours(g_contours, contours, cvScalar(255, 255, 0), cvScalar(255, 0, 255), -1, CV_FILLED, 8); 
 
-	printf("Drew contour %d of %d (%d points)\n", g_currentContour, i, points); 
+	//printf("Drew contour %d of %d (%d points)\n", g_currentContour, i, points); 
 
 	cvShowImage("contours", g_contours); 
 }
