@@ -4,9 +4,8 @@
 #include "stdafx.h"
 
 int g_threshold = 5; 
-int g_maxDepth = 5;
-int g_contourPolyPrecision = 10; // Tenths of pixels
-int g_currentContour = 0; 
+int g_contourPolyPrecision = 40; // Tenths of pixels
+int g_contourArea = 10; // Percent
 
 CvCapture* g_capture; 
 IplImage* g_raw; 
@@ -16,6 +15,23 @@ IplImage* g_contours;
 IplImage* g_contourSource; 
 IplConvKernel* g_morphKernel; 
 CvMemStorage* g_storage; 
+
+double pad_border_area(CvSeq* contour, CvSeq* poly)
+{
+	if (poly->total != 4)
+	{
+		return -1.0; 
+	}
+
+    double area = fabs(cvContourArea(contour)) / ((double)(g_raw->width * g_raw->height));
+
+	if (area < (g_contourArea / 100.0))
+	{
+		return -1.0; 
+	}
+
+	return area; 
+}
 
 void update_contours(int)
 {
@@ -34,44 +50,36 @@ void update_contours(int)
 	colors[4] = cvScalar(255, 0, 255);
 	colors[5] = cvScalar(0, 255, 255);
 
-#if 1
 	CvContourScanner scanner = cvStartFindContours(g_contourSource, g_storage, sizeof(CvContour), CV_RETR_CCOMP);
 	CvSeq* contour; 
 
-	int i = 0; 
+	double max_area = -1; 
+	CvSeq* max_poly = NULL; 
 	while ((contour = cvFindNextContour(scanner)) != NULL)
 	{
-		CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
+	    CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
 
-		if (poly->total == 4)
+		double area = pad_border_area(contour, poly); 
+		if (area > -1 && area > max_area)
 		{
-			for (int j = 0; j < 4; ++j)
-			{
-				CvPoint* vertex = (CvPoint*) cvGetSeqElem(poly, j); 
-				CvPoint* nextVertex = (CvPoint*) cvGetSeqElem(poly, (j+1)%4);
-				//cvCircle(g_contours, vertex, 2, colors[(i+1)%6]); 
-				cvLine(g_contours, *vertex, *nextVertex, colors[i%6]); 
-			}
-			++i; 
+			max_area = area; 
+			max_poly = poly; 
 		}
-
 	}
 	CvSeq* contours = cvEndFindContours(&scanner); 
-#else
-	CvSeq* contours; 
-	cvFindContours(g_contourSource, g_storage, &contours, sizeof(CvContour)); 
 
-	for (int i = 0; i < contours->total; ++i)
+	if (max_poly != NULL)
 	{
-		CvSeq* contour = (CvSeq*) cvGetSeqElem(contours, i); 
-		cvDrawContours(g_contours, contour, colors[i%6], colors[(i+1)%6], 0); 
+		for (int j = 0; j < 4; ++j)
+		{
+			CvPoint* vertex = (CvPoint*) cvGetSeqElem(max_poly, j); 
+			CvPoint* nextVertex = (CvPoint*) cvGetSeqElem(max_poly, (j+1)%4);
+			//cvCircle(g_contours, vertex, 2, colors[(i+1)%6]); 
+			cvLine(g_contours, *vertex, *nextVertex, colors[2]); 
+		}
 	}
 
-#endif
-	//cvDrawContours(g_contours, contours, cvScalar(255, 255, 0), cvScalar(255, 0, 255), g_maxDepth, CV_FILLED); 
-	//cvDrawContours(g_contours, contours, cvScalar(255, 255, 0), cvScalar(255, 0, 255), -1, CV_FILLED, 8); 
-
-	//printf("Drew contour %d of %d (%d points)\n", g_currentContour, i, points); 
+	cvClearMemStorage(g_storage); 
 
 	cvShowImage("contours", g_contours); 
 }
@@ -92,13 +100,13 @@ void grab()
 	cvSmooth(g_grabbed, g_grabbed); 
 	cvShowImage("grabbed", g_grabbed); 
 	update_threshold(0); 
-	g_currentContour = 0; 
 }
 
 void update()
 {
 	g_raw = cvQueryFrame(g_capture); 
 	cvShowImage("raw", g_raw); 
+	grab(); 
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -121,8 +129,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_storage = cvCreateMemStorage(); 
 
 	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
-	cvCreateTrackbar("max_depth", "contours", &g_maxDepth, 20, update_contours); 
-	cvCreateTrackbar("poly precision", "contours", &g_contourPolyPrecision, 50, update_contours); 
+	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, update_contours); 
+	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, update_contours); 
 
 	update(); 
 
@@ -137,20 +145,6 @@ int _tmain(int argc, _TCHAR* argv[])
 		if ((key == 27) || (key == 'q'))
 		{
 			break; 
-		}
-		else if (key == 'g')
-		{
-			grab(); 
-		}
-		else if (key == 'n')
-		{
-			++g_currentContour; 
-			update_contours(0); 
-		}
-		else if (key == 'p')
-		{
-			--g_currentContour; 
-			update_contours(0); 
 		}
 		else
 		{
