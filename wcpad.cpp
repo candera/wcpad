@@ -6,6 +6,7 @@
 int g_threshold = 5; 
 int g_contourPolyPrecision = 40; // Tenths of pixels
 int g_contourArea = 10; // Percent
+int g_foregroundThreshold = 20; 
 
 CvCapture* g_capture; 
 IplImage* g_raw; 
@@ -13,7 +14,15 @@ IplImage* g_grabbed;
 IplImage* g_thresholded; 
 IplImage* g_contours; 
 IplImage* g_contourSource; 
-IplConvKernel* g_morphKernel; 
+IplImage* g_background; 
+IplImage* g_backh; 
+IplImage* g_backs; 
+IplImage* g_backv;
+IplImage* g_forehsv; 
+IplImage* g_foreh; 
+IplImage* g_fores; 
+IplImage* g_forev; 
+IplImage* g_foreground; 
 CvMemStorage* g_storage; 
 
 CvPoint g_border[4]; 
@@ -21,7 +30,8 @@ CvPoint g_border[4];
 enum AppState
 {
 	APPSTATE_ACQUIRING_BORDER, 
-	APPSTATE_ACQUIRED_BORDER
+	APPSTATE_ACCUMULATING_BACKGROUND,
+	APPSTATE_READY
 } g_appState = APPSTATE_ACQUIRING_BORDER; 
 
 double pad_border_area(CvSeq* contour, CvSeq* poly)
@@ -96,7 +106,7 @@ void update()
 
 	cvScale(g_grabbed, g_contours, 0.3); 
 
-	if (g_appState == APPSTATE_ACQUIRED_BORDER)
+	if (g_appState == APPSTATE_READY)
 	{
 		for (int j = 0; j < 4; ++j)
 		{
@@ -119,20 +129,29 @@ int _tmain(int argc, _TCHAR* argv[])
 	cvNamedWindow("grabbed"); 
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("contours"); 
+	cvNamedWindow("foreground"); 
 
 	g_raw = cvQueryFrame(g_capture); 
+	g_background = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
+	g_backh = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_backs = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_backv = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_foreground = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_forehsv = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
+	g_foreh = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_fores = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_forev = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_grabbed = cvCloneImage(g_raw); 
 	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contourSource = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contours = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
-
-	g_morphKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
 
 	g_storage = cvCreateMemStorage(); 
 
 	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, NULL); 
 	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, NULL); 
 	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, NULL); 
+	cvCreateTrackbar("threshold", "foreground", &g_foregroundThreshold, 255, NULL); 
 
 	update(); 
 
@@ -162,18 +181,31 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				if (find_border())
 				{
-					g_appState = APPSTATE_ACQUIRED_BORDER; 
+					g_appState = APPSTATE_ACCUMULATING_BACKGROUND; 
+					printf("Border acquired - accumulating background\n"); 
 
-					printf("Border acquired\n"); 
 					for (int i = 0; i < 4; ++i)
 					{
 						printf("%d: (%d, %d)\n", i, g_border[i].x, g_border[i].y); 
 					}
 				}
 			}
-			else if (g_appState == APPSTATE_ACQUIRED_BORDER)
+			else if (g_appState == APPSTATE_ACCUMULATING_BACKGROUND)
 			{
-				// TODO
+				cvCvtColor(g_raw, g_background, CV_RGB2HSV); 
+				cvSplit(g_background, g_backh, g_backs, g_backv, NULL); 
+				g_appState = APPSTATE_READY; 
+				printf("Background acquired. Ready to record clicks.\n"); 
+			}
+			else if (g_appState == APPSTATE_READY)
+			{
+				cvCvtColor(g_raw, g_forehsv, CV_RGB2HSV); 
+				cvSplit(g_forehsv, g_foreh, g_fores, g_forev, NULL); 
+				cvAbsDiff(g_foreh, g_backh, g_foreground); 
+				cvSmooth(g_foreground, g_foreground); 
+				//cvAdaptiveThreshold(g_foreground, g_foreground, 255, 0, CV_THRESH_BINARY_INV, 11, g_foregroundThreshold); 
+				cvThreshold(g_foreground, g_foreground, g_foregroundThreshold, 255, CV_THRESH_BINARY);
+				cvShowImage("foreground", g_foreground); 
 			}
 		}
 	}
