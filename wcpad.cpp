@@ -16,6 +16,14 @@ IplImage* g_contourSource;
 IplConvKernel* g_morphKernel; 
 CvMemStorage* g_storage; 
 
+CvPoint g_border[4]; 
+
+enum AppState
+{
+	APPSTATE_ACQUIRING_BORDER, 
+	APPSTATE_ACQUIRED_BORDER
+} g_appState = APPSTATE_ACQUIRING_BORDER; 
+
 double pad_border_area(CvSeq* contour, CvSeq* poly)
 {
 	if (poly->total != 4)
@@ -33,22 +41,16 @@ double pad_border_area(CvSeq* contour, CvSeq* poly)
 	return area; 
 }
 
-void update_contours(int)
+bool find_border()
 {
-	cvScale(g_grabbed, g_contours, 0.5); 
+	cvShowImage("grabbed", g_grabbed); 
+
+	cvCvtColor(g_grabbed, g_thresholded, CV_RGB2GRAY); 
+	cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
+	cvShowImage("thresholded", g_thresholded); 
+
+	bool found = false; 
 	cvCopy(g_thresholded, g_contourSource); 
-
-	//cvFindContours(g_contourSource, g_storage, &contours, sizeof(CvContour), CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE); 
-	//cvFindContours(g_contourSource, g_storage, &contours, sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE); 
-	//printf("Found %d contours\n", contours->total);
-
-	CvScalar colors[6]; 
-	colors[0] = cvScalar(255, 0, 0);
-	colors[1] = cvScalar(0, 255, 0);
-	colors[2] = cvScalar(0, 0, 255);
-	colors[3] = cvScalar(255, 255, 0);
-	colors[4] = cvScalar(255, 0, 255);
-	colors[5] = cvScalar(0, 255, 255);
 
 	CvContourScanner scanner = cvStartFindContours(g_contourSource, g_storage, sizeof(CvContour), CV_RETR_CCOMP);
 	CvSeq* contour; 
@@ -73,40 +75,40 @@ void update_contours(int)
 		for (int j = 0; j < 4; ++j)
 		{
 			CvPoint* vertex = (CvPoint*) cvGetSeqElem(max_poly, j); 
-			CvPoint* nextVertex = (CvPoint*) cvGetSeqElem(max_poly, (j+1)%4);
-			//cvCircle(g_contours, vertex, 2, colors[(i+1)%6]); 
-			cvLine(g_contours, *vertex, *nextVertex, colors[2]); 
+			g_border[j].x = vertex->x;
+			g_border[j].y = vertex->y; 
 		}
+		found = true; 
 	}
 
 	cvClearMemStorage(g_storage); 
 
-	cvShowImage("contours", g_contours); 
-}
-
-
-void update_threshold(int)
-{
-	//cvThreshold(g_thresholded, g_thresholded, g_threshold, 255, CV_THRESH_BINARY); 
-	cvCvtColor(g_grabbed, g_thresholded, CV_RGB2GRAY); 
-	cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
-	cvShowImage("thresholded", g_thresholded); 
-	update_contours(0); 
-}
-
-void grab()
-{
-	cvCopy(g_raw, g_grabbed); 
-	cvSmooth(g_grabbed, g_grabbed); 
-	cvShowImage("grabbed", g_grabbed); 
-	update_threshold(0); 
+	return found; 
 }
 
 void update()
 {
 	g_raw = cvQueryFrame(g_capture); 
 	cvShowImage("raw", g_raw); 
-	grab(); 
+
+	cvCopy(g_raw, g_grabbed); 
+	cvSmooth(g_grabbed, g_grabbed); 
+
+	cvScale(g_grabbed, g_contours, 0.3); 
+
+	if (g_appState == APPSTATE_ACQUIRED_BORDER)
+	{
+		for (int j = 0; j < 4; ++j)
+		{
+			CvPoint vertex = g_border[j]; 
+			CvPoint nextVertex = g_border[(j+1)%4];
+			cvLine(g_contours, vertex, nextVertex, cvScalar(0, 0, 255)); 
+			cvCircle(g_contours, vertex, 2, cvScalar(0, 255, 255)); 
+		}
+	}
+
+	cvShowImage("contours", g_contours); 
+
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -128,15 +130,17 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	g_storage = cvCreateMemStorage(); 
 
-	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
-	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, update_contours); 
-	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, update_contours); 
+	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, NULL); 
+	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, NULL); 
+	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, NULL); 
 
 	update(); 
 
-	printf("g = grab frame\n"); 
+	printf("r = reset\n"); 
 	printf("\n"); 
 	printf("Escape to exit\n"); 
+	printf("\n"); 
+	printf("Acquiring border...\n"); 
 
 	while (true)
 	{
@@ -146,21 +150,33 @@ int _tmain(int argc, _TCHAR* argv[])
 		{
 			break; 
 		}
+		else if ((key == 'r') || (key == 'R'))
+		{
+			g_appState = APPSTATE_ACQUIRING_BORDER; 
+			printf("Acquiring border...\n"); 
+		}
 		else
 		{
 			update(); 
+			if (g_appState == APPSTATE_ACQUIRING_BORDER)
+			{
+				if (find_border())
+				{
+					g_appState = APPSTATE_ACQUIRED_BORDER; 
+
+					printf("Border acquired\n"); 
+					for (int i = 0; i < 4; ++i)
+					{
+						printf("%d: (%d, %d)\n", i, g_border[i].x, g_border[i].y); 
+					}
+				}
+			}
+			else if (g_appState == APPSTATE_ACQUIRED_BORDER)
+			{
+				// TODO
+			}
 		}
 	}
-
-    /*
-	CvMemStorage* storage = cvCreateMemStorage(); 
-	CvSeq* firstContour = NULL; 
-	cvFindContours(raw, storage, &firstContour);
-
-	cvDrawContours(scaled, firstContour, 
-    
-	cvReleaseMemStorage(&storage); 
-	*/
 
 	// TODO: Other cleanup
 	cvReleaseCapture(&g_capture); 
