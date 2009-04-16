@@ -6,7 +6,9 @@
 int g_threshold = 5; 
 int g_contourPolyPrecision = 40; // Tenths of pixels
 int g_contourArea = 10; // Percent
-int g_foregroundThreshold = 20; 
+int g_foregroundThreshold = 0; // Hundredths, offset by 1.0
+
+#define BACKGROUND_FRAMES 30
 
 CvCapture* g_capture; 
 IplImage* g_raw; 
@@ -14,10 +16,6 @@ IplImage* g_grabbed;
 IplImage* g_thresholded; 
 IplImage* g_contours; 
 IplImage* g_contourSource; 
-IplImage* g_background; 
-IplImage* g_backh; 
-IplImage* g_backs; 
-IplImage* g_backv;
 IplImage* g_forehsv; 
 IplImage* g_foreh; 
 IplImage* g_fores; 
@@ -33,6 +31,32 @@ enum AppState
 	APPSTATE_ACCUMULATING_BACKGROUND,
 	APPSTATE_READY
 } g_appState = APPSTATE_ACQUIRING_BORDER; 
+
+void CopyImageToMatrix(IplImage* image, CvMat* matrix)
+{
+	//CvMat buffer; 
+	//cvCopy(cvGetMat(g_raw, &buffer), background[backgroundFrame]); 
+	// TODO: Optimize this once I figure out what the hell is wrong with the above line	
+	for (int y = 0; y < image->height; y++)
+	{
+		for (int x = 0; x < image->width; x++)
+		{
+			cvSet2D(matrix, y, x, cvGet2D(image, y, x)); 
+		}
+	}
+}
+
+void CopyMatrixToImage(CvMat* matrix, IplImage* image)
+{
+	// TODO: Optimize this 
+	for (int y = 0; y < image->height; y++)
+	{
+		for (int x = 0; x < image->width; x++)
+		{
+			cvSet2D(image, y, x, cvGet2D(matrix, y, x)); 
+		}
+	}
+}
 
 double pad_border_area(CvSeq* contour, CvSeq* poly)
 {
@@ -130,12 +154,25 @@ int _tmain(int argc, _TCHAR* argv[])
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("contours"); 
 	cvNamedWindow("foreground"); 
+	cvNamedWindow("background"); 
+	cvNamedWindow("backstd"); 
 
 	g_raw = cvQueryFrame(g_capture); 
-	g_background = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
-	g_backh = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	g_backs = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	g_backv = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	
+	CvMat* background[BACKGROUND_FRAMES]; 
+	for (int i = 0; i < BACKGROUND_FRAMES; ++i)
+	{
+		background[i] = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
+	}
+	CvMat* backgroundMean = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
+	CvMat* backgroundVariance = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
+	CvMat* backgroundStd = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
+	CvMat* backgroundScratch = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
+	CvMat* backgroundMin = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
+	CvMat* backgroundMax = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
+	IplImage* backgroundMeanImg = cvCreateImage(cvGetSize(g_raw), IPL_DEPTH_32F, 3); 
+	IplImage* backgroundStdImg = cvCreateImage(cvGetSize(g_raw), IPL_DEPTH_32F, 3); 
+	IplImage* basis = cvCloneImage(g_raw); 
 	g_foreground = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_forehsv = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
 	g_foreh = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
@@ -145,13 +182,14 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contourSource = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contours = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
+	CvMat* borderPoly = cvCreateMat(4, 1, CV_32FC2);
 
 	g_storage = cvCreateMemStorage(); 
 
 	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, NULL); 
 	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, NULL); 
 	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, NULL); 
-	cvCreateTrackbar("threshold", "foreground", &g_foregroundThreshold, 255, NULL); 
+	cvCreateTrackbar("threshold", "foreground", &g_foregroundThreshold, 40, NULL); 
 
 	update(); 
 
@@ -161,6 +199,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("\n"); 
 	printf("Acquiring border...\n"); 
 
+	int backgroundFrame = 0; 
+	int conversion = CV_BGR2XYZ; 
 	while (true)
 	{
 		int key = cvWaitKey(33); 
@@ -171,6 +211,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 		else if ((key == 'r') || (key == 'R'))
 		{
+			backgroundFrame = 0; 
 			g_appState = APPSTATE_ACQUIRING_BORDER; 
 			printf("Acquiring border...\n"); 
 		}
@@ -181,6 +222,12 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				if (find_border())
 				{
+					for (int i = 0; i < 4; ++i)
+					{
+						CvPoint point = g_border[i]; 
+						cvSet1D(borderPoly, i, cvScalar(point.x, point.y)); 
+					}
+
 					g_appState = APPSTATE_ACCUMULATING_BACKGROUND; 
 					printf("Border acquired - accumulating background\n"); 
 
@@ -192,19 +239,105 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else if (g_appState == APPSTATE_ACCUMULATING_BACKGROUND)
 			{
-				cvCvtColor(g_raw, g_background, CV_RGB2HSV); 
-				cvSplit(g_background, g_backh, g_backs, g_backv, NULL); 
-				g_appState = APPSTATE_READY; 
-				printf("Background acquired. Ready to record clicks.\n"); 
+				if (backgroundFrame == 0)
+				{
+					cvZero(backgroundMean); 
+					cvZero(backgroundVariance); 
+					cvZero(backgroundMax); 
+					cvSet(backgroundMin, cvScalar(255, 255, 255)); 
+				}
+
+				//cvCvtColor(g_raw, g_background, CV_RGB2HSV); 
+				//cvSplit(g_background, g_backh, g_backs, g_backv, NULL); 
+				if (backgroundFrame < BACKGROUND_FRAMES)
+				{
+					CopyImageToMatrix(g_raw, background[backgroundFrame]); 
+					cvCvtColor(background[backgroundFrame], background[backgroundFrame], conversion); 
+					++backgroundFrame; 
+				}
+				else
+				{
+					for (int i = 0; i < BACKGROUND_FRAMES; i++)
+					{
+						cvAcc(background[i], backgroundMean); 
+						cvMin(backgroundMin, background[i], backgroundMin); 
+						cvMax(backgroundMax, background[i], backgroundMax); 
+					}
+
+					cvScale(backgroundMean, backgroundMean, 1.0/(double)BACKGROUND_FRAMES); 
+
+					for (int i = 0; i < BACKGROUND_FRAMES; i++)
+					{
+						cvSub(background[i], backgroundMean, backgroundScratch); 
+						cvSquareAcc(backgroundScratch, backgroundVariance); 
+					}
+
+					cvScale(backgroundVariance, backgroundVariance, 1.0/(double)BACKGROUND_FRAMES); 
+					cvPow(backgroundVariance, backgroundStd, 0.5); 
+
+					CopyMatrixToImage(backgroundMean, backgroundMeanImg); 
+					CopyMatrixToImage(backgroundStd, backgroundStdImg); 
+
+					cvScale(backgroundMeanImg, backgroundMeanImg, 1.0/256.0); 
+					cvScale(backgroundStdImg, backgroundStdImg, 1.0/256.0);	
+					cvShowImage("background", backgroundMeanImg); 
+					cvShowImage("backstd", backgroundStdImg);
+
+					g_appState = APPSTATE_READY; 
+					printf("Background acquired. Ready to record clicks.\n"); 
+				}
 			}
 			else if (g_appState == APPSTATE_READY)
 			{
-				cvCvtColor(g_raw, g_forehsv, CV_RGB2HSV); 
-				cvSplit(g_forehsv, g_foreh, g_fores, g_forev, NULL); 
-				cvAbsDiff(g_foreh, g_backh, g_foreground); 
-				cvSmooth(g_foreground, g_foreground); 
+				//cvCvtColor(g_raw, g_forehsv, CV_RGB2HSV); 
+				//cvSplit(g_forehsv, g_foreh, g_fores, g_forev, NULL); 
+				//cvAbsDiff(g_fores, g_backs, g_foreground); 
+				//cvSmooth(g_foreground, g_foreground); 
 				//cvAdaptiveThreshold(g_foreground, g_foreground, 255, 0, CV_THRESH_BINARY_INV, 11, g_foregroundThreshold); 
-				cvThreshold(g_foreground, g_foreground, g_foregroundThreshold, 255, CV_THRESH_BINARY);
+				//cvThreshold(g_foreground, g_foreground, g_foregroundThreshold, 255, CV_THRESH_BINARY);
+
+				cvZero(g_foreground); 
+				cvCvtColor(g_raw, basis, conversion); 
+
+				double threshold = (g_foregroundThreshold / 100.0) + 1.0; 
+
+				for (int y = 0; y < basis->height; y++)
+				{
+					for (int x = 0; x < basis->width; x++)
+					{
+						CvPoint2D32f point; 
+						point.x = (float) x; 
+						point.y = (float) y; 
+						if (cvPointPolygonTest(borderPoly, point, 0) > 0)
+						{
+
+							CvScalar raw = cvGet2D(basis, y, x); 
+							CvScalar bgm = cvGet2D(backgroundMean, y, x); 
+							CvScalar bgs = cvGet2D(backgroundStd, y, x); 
+							CvScalar bgmin = cvGet2D(backgroundMin, y, x); 
+							CvScalar bgmax = cvGet2D(backgroundMax, y, x); 
+
+							bool result = false; 
+
+							// If at least one channels is outside the min/max background, then it's foreground
+							for (int c = 0; c < 3; c++)
+							{
+								if ((raw.val[c] > (bgmax.val[c] * threshold)) 
+									|| (raw.val[c] < (bgmin.val[c] / threshold)))
+									//							if (fabs(raw.val[c] - bgm.val[c]) > (bgs.val[c] * threshold))
+								{
+									result = true; 	
+									break;
+								}
+							}
+							if (result)
+							{
+								cvSet2D(g_foreground, y, x, cvScalar(255));
+							}
+						}
+					}
+				}
+
 				cvShowImage("foreground", g_foreground); 
 			}
 		}
@@ -216,4 +349,5 @@ int _tmain(int argc, _TCHAR* argv[])
 	
 	return 0;
 }
+
 
