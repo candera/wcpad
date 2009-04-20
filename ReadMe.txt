@@ -1,7 +1,15 @@
 TODO: 
 
+* Detect border via single-frame analysis of straight lines
+  * Find contours
+  * Interpolate as polygons
+  * Discard segments smaller than a threshold
+  * Merge colinear segments
+  * Find intersection points
+  * Compute all quadrangles based on intersection points
+  * Discard quadrangles that don't meet search criteria
+  * Should allow for multiple quadrangle detection
 * How does gathering more noise data affect finger detection? 
-* Do other color spaces give better differentiation of fingers? 
 * Would more smoothing help? 
 * What about a L2 metric between color data? 
 * Track border corners 
@@ -12,3 +20,5 @@ TODO:
 
 DONE: 
 * Fix memory leak
+* Do other color spaces give better differentiation of fingers? 
+  * Yes. XYZ seems to be the best, at least for my hands. 

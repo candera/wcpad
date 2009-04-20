@@ -6,7 +6,10 @@
 int g_threshold = 5; 
 int g_contourPolyPrecision = 40; // Tenths of pixels
 int g_contourArea = 10; // Percent
-int g_foregroundThreshold = 0; // Hundredths, offset by 1.0
+int g_foregroundH = 0; 
+int g_foregroundS = 128;
+int g_foregroundV = 128;
+int g_foregroundHWindow = 10; 
 
 #define BACKGROUND_FRAMES 30
 
@@ -189,7 +192,10 @@ int _tmain(int argc, _TCHAR* argv[])
 	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, NULL); 
 	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, NULL); 
 	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, NULL); 
-	cvCreateTrackbar("threshold", "foreground", &g_foregroundThreshold, 40, NULL); 
+	cvCreateTrackbar("H", "foreground", &g_foregroundH, 255, NULL); 
+	cvCreateTrackbar("H window", "foreground", &g_foregroundHWindow, 255, NULL); 
+	cvCreateTrackbar("S", "foreground", &g_foregroundS, 255, NULL); 
+	cvCreateTrackbar("V", "foreground", &g_foregroundV, 255, NULL); 
 
 	update(); 
 
@@ -200,7 +206,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("Acquiring border...\n"); 
 
 	int backgroundFrame = 0; 
-	int conversion = CV_BGR2XYZ; 
+	int conversion = CV_BGR2HSV; 
 	while (true)
 	{
 		int key = cvWaitKey(33); 
@@ -299,8 +305,6 @@ int _tmain(int argc, _TCHAR* argv[])
 				cvZero(g_foreground); 
 				cvCvtColor(g_raw, basis, conversion); 
 
-				double threshold = (g_foregroundThreshold / 100.0) + 1.0; 
-
 				for (int y = 0; y < basis->height; y++)
 				{
 					for (int x = 0; x < basis->width; x++)
@@ -310,7 +314,6 @@ int _tmain(int argc, _TCHAR* argv[])
 						point.y = (float) y; 
 						if (cvPointPolygonTest(borderPoly, point, 0) > 0)
 						{
-
 							CvScalar raw = cvGet2D(basis, y, x); 
 							CvScalar bgm = cvGet2D(backgroundMean, y, x); 
 							CvScalar bgs = cvGet2D(backgroundStd, y, x); 
@@ -319,17 +322,13 @@ int _tmain(int argc, _TCHAR* argv[])
 
 							bool result = false; 
 
-							// If at least one channels is outside the min/max background, then it's foreground
-							for (int c = 0; c < 3; c++)
+							if ((abs(raw.val[0] - g_foregroundH) < g_foregroundHWindow)
+								&& (raw.val[1] > g_foregroundS)
+								&& (raw.val[2] > g_foregroundV))
 							{
-								if ((raw.val[c] > (bgmax.val[c] * threshold)) 
-									|| (raw.val[c] < (bgmin.val[c] / threshold)))
-									//							if (fabs(raw.val[c] - bgm.val[c]) > (bgs.val[c] * threshold))
-								{
-									result = true; 	
-									break;
-								}
+								result = true; 
 							}
+
 							if (result)
 							{
 								cvSet2D(g_foreground, y, x, cvScalar(255));
