@@ -3,344 +3,469 @@
 
 #include "stdafx.h"
 
-int g_threshold = 5; 
-int g_contourPolyPrecision = 40; // Tenths of pixels
-int g_contourArea = 10; // Percent
-int g_foregroundH = 0; 
-int g_foregroundS = 128;
-int g_foregroundV = 128;
-int g_foregroundHWindow = 10; 
+#define FRAME_AT_A_TIME 0
 
-#define BACKGROUND_FRAMES 30
+int g_threshold = 5; 
+int g_maxDepth = 5;
+int g_contourPolyPrecision = 40; // Tenths of pixels
+int g_segmentThreshold = 10; // Pixels
+int g_collinearityThreshold = 104; // Tenths of pixels
+int g_maxLineGap = 75; // Pixels
+int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any angle
+int g_camera = 0; 
 
 CvCapture* g_capture; 
 IplImage* g_raw; 
+IplImage* g_test; 
 IplImage* g_grabbed; 
 IplImage* g_thresholded; 
 IplImage* g_contours; 
 IplImage* g_contourSource; 
-IplImage* g_forehsv; 
-IplImage* g_foreh; 
-IplImage* g_fores; 
-IplImage* g_forev; 
-IplImage* g_foreground; 
+IplConvKernel* g_morphKernel; 
 CvMemStorage* g_storage; 
 
-CvPoint g_border[4]; 
-
-enum AppState
+typedef struct LineSegment
 {
-	APPSTATE_ACQUIRING_BORDER, 
-	APPSTATE_ACCUMULATING_BACKGROUND,
-	APPSTATE_READY
-} g_appState = APPSTATE_ACQUIRING_BORDER; 
+	CvPoint p1; 
+	CvPoint p2; 
+} LineSegment; 
 
-void CopyImageToMatrix(IplImage* image, CvMat* matrix)
+double min4(double a, double b, double c, double d)
 {
-	//CvMat buffer; 
-	//cvCopy(cvGetMat(g_raw, &buffer), background[backgroundFrame]); 
-	// TODO: Optimize this once I figure out what the hell is wrong with the above line	
-	for (int y = 0; y < image->height; y++)
+	return min(a, min(b, min(c, d))); 
+}
+
+double max4(double a, double b, double c, double d)
+{
+	return max(a, max(b, max(c, d))); 
+}
+
+int min4(int a, int b, int c, int d)
+{
+	return min(a, min(b, min(c, d))); 
+}
+
+int max4(int a, int b, int c, int d)
+{
+	return max(a, max(b, max(c, d))); 
+}
+
+double length2(CvPoint* p1, CvPoint* p2)
+{
+	double dx = p1->x - p2->x; 
+	double dy = p1->y - p2->y; 
+
+	return ((dx * dx) + (dy * dy)); 
+}
+
+double length2(LineSegment* s)
+{
+	return length2(&(s->p1), &(s->p2)); 
+}
+
+double length(CvPoint* p1, CvPoint* p2)
+{
+	return sqrt(length2(p1, p2)); 
+}
+
+double length(LineSegment* s)
+{
+	return length(&(s->p1), &(s->p2)); 
+}
+
+double DotNormal(LineSegment* s1, LineSegment* s2)
+{
+	double l1 = length(s1); 
+	double l2 = length(s2); 
+	double x1 = (s1->p2.x - s1->p1.x) / l1; 
+	double x2 = (s2->p2.x - s2->p1.x) / l2; 
+	double y1 = (s1->p2.y - s1->p1.y) / l1; 
+	double y2 = (s2->p2.y - s2->p1.y) / l1; 
+
+	return x1 * x2 + y1 * y2; 
+}
+
+double Dot(LineSegment* s1, LineSegment* s2)
+{
+	int x1 = s1->p2.x - s1->p1.x; 
+	int x2 = s2->p2.x - s2->p1.x; 
+	int y1 = s1->p2.y - s1->p1.y; 
+	int y2 = s2->p2.y - s2->p1.y; 
+
+	return x1 * x2 + y1 * y2; 
+}
+
+//double Collinearity(LineSegment* s1, LineSegment* s2)
+//{
+//	return 1.0 - fabs(Dot(s1, s2) / (length(s1) * length(s2))); 
+//}
+
+double IndexOnLineNearestPoint(CvPoint* pt, LineSegment* s)
+{
+	double un = ((pt->x - s->p1.x) * (s->p2.x - s->p1.x)) + ((pt->y - s->p1.y) * (s->p2.y - s->p1.y));
+	double ud = ((s->p1.x - s->p2.x) * (s->p1.x - s->p2.x)) + ((s->p1.y - s->p2.y) * (s->p1.y - s->p2.y));
+	return un / ud; 
+}
+
+CvPoint PointAlongLine(double u, LineSegment* s)
+{
+	double x = (double) s->p1.x + (u * (double) (s->p2.x - s->p1.x)); 
+	double y = (double) s->p1.y + (u * (double) (s->p2.y - s->p1.y)); 
+
+	// TODO: Round? 
+	return cvPoint((int)x, (int)y);
+}
+
+double PointToLineDistance(CvPoint* pt, LineSegment* s)
+{
+	double u = IndexOnLineNearestPoint(pt, s); 
+
+	CvPoint nearest = PointAlongLine(u, s); 
+	return length(pt, &nearest); 
+}
+
+CvPoint2D32f Unitize(LineSegment* s)
+{
+	double len = length(s); 
+	return cvPoint2D32f((s->p2.x - s->p1.x) / len, (s->p2.y - s->p1.y) / len); 
+}
+
+// Returns the square of the "gap" between two line segments, which is the 
+// distance between their two nearest endpoints
+double Gap2(LineSegment* s1, LineSegment* s2)
+{
+	double gap11 = length2(&(s1->p1), &(s2->p1)); 
+	double gap12 = length2(&(s1->p1), &(s2->p2)); 
+	double gap21 = length2(&(s1->p2), &(s2->p1));
+	double gap22 = length2(&(s1->p2), &(s2->p2)); 
+
+	return min4(gap11, gap12, gap21, gap22); 
+}
+
+int CollinearWithAny(CvSeq* lines, LineSegment* s, double maxDistanceFromFitLine, double maxAllowableGap, double maxAngle)
+{
+	for (int i = 0; i < lines->total; i++)
 	{
-		for (int x = 0; x < image->width; x++)
+		LineSegment* t = (LineSegment*) cvGetSeqElem(lines, i); 
+		
+		double d1 = PointToLineDistance(&(t->p1), s);
+		double d2 = PointToLineDistance(&(t->p2), s); 
+
+		// Taylor series approximation for cosine in degrees
+		double minCos = 1.0 - (3.0462E-4 * maxAngle * maxAngle); 
+
+		double gap2 = Gap2(s, t); 
+
+		if (	(d1 < maxDistanceFromFitLine) 
+			&&	(d2 < maxDistanceFromFitLine) 
+			&&	(gap2 < (maxAllowableGap * maxAllowableGap))
+			&&  (fabs(DotNormal(s, t)) > minCos))
 		{
-			cvSet2D(matrix, y, x, cvGet2D(image, y, x)); 
+			return i; 
 		}
 	}
+
+	return -1; 
 }
 
-void CopyMatrixToImage(CvMat* matrix, IplImage* image)
+void MergeLineSegments(LineSegment* s1, LineSegment* s2, LineSegment* m) 
 {
-	// TODO: Optimize this 
-	for (int y = 0; y < image->height; y++)
+	CvPoint2D32f points[4]; 
+	points[0] = cvPoint2D32f(s1->p1.x, s1->p1.y); 
+	points[1] = cvPoint2D32f(s1->p2.x, s1->p2.y); 
+	points[2] = cvPoint2D32f(s2->p1.x, s2->p1.y); 
+	points[3] = cvPoint2D32f(s2->p2.x, s2->p2.y); 
+	
+	float line[4]; 
+
+	cvFitLine2D(points, 4, CV_DIST_L2, 0, 0.01F, 0.01F, line); 
+
+	LineSegment s3; 
+	s3.p1 = cvPoint((int) line[2], (int) line[3]); 
+	s3.p2 = cvPoint((int) (line[2] + (line[0] * 1000)), (int) (line[3] + (line[1] * 1000))); 
+
+	double minu = 1e20; 
+	double maxu = -1e20;
+	int minIndex = 0;
+	int maxIndex = 0; 
+
+	for (int i = 0; i < 4; i++)
 	{
-		for (int x = 0; x < image->width; x++)
+		CvPoint pt = cvPoint((int) points[i].x, (int) points[i].y); 
+		double u = IndexOnLineNearestPoint(&pt, &s3); 
+
+		if (u < minu)
 		{
-			cvSet2D(image, y, x, cvGet2D(matrix, y, x)); 
+			minIndex = i; 
+			minu = u; 
+		}
+
+		if (u > maxu)
+		{
+			maxIndex = i; 
+			maxu = u; 
 		}
 	}
+
+	m->p1 = PointAlongLine(minu, &s3);
+	m->p2 = PointAlongLine(maxu, &s3); 
 }
 
-double pad_border_area(CvSeq* contour, CvSeq* poly)
+// Used to sort line segments in order of decreasing length
+int LineSegmentLengthCompareDecreasingLength(const void* a, const void* b, void* userdata)
 {
-	if (poly->total != 4)
-	{
-		return -1.0; 
-	}
+	double la = length((LineSegment*)a); 
+	double lb = length((LineSegment*)b); 
 
-    double area = fabs(cvContourArea(contour)) / ((double)(g_raw->width * g_raw->height));
-
-	if (area < (g_contourArea / 100.0))
-	{
-		return -1.0; 
-	}
-
-	return area; 
+	return (la > lb) ? -1 : (la < lb) ? 1 : 0; 
 }
 
-bool find_border()
+CvSeq* MergeLines(CvSeq* lines, CvMemStorage* storage, double collinearityThreshold, double maxLineGap, double maxAngle)
 {
-	cvShowImage("grabbed", g_grabbed); 
+	cvSeqSort(lines, LineSegmentLengthCompareDecreasingLength); 
 
-	cvCvtColor(g_grabbed, g_thresholded, CV_RGB2GRAY); 
-	cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
-	cvShowImage("thresholded", g_thresholded); 
+	CvSeq* mergedLines = cvCreateSeq(0, sizeof(CvSeq), sizeof(LineSegment), storage); 
 
-	bool found = false; 
+	for (int i = 0; i < lines->total; i++)
+	{
+		LineSegment* s = (LineSegment*) cvGetSeqElem(lines, i); 
+
+		int index = -1; 
+		if ((index = CollinearWithAny(mergedLines, s, collinearityThreshold, maxLineGap, maxAngle)) != -1)
+		{
+			LineSegment* s2 = (LineSegment*) cvGetSeqElem(mergedLines, index); 
+
+			LineSegment m; 
+			MergeLineSegments(s, s2, &m); 
+
+			cvSeqRemove(mergedLines, index); 
+
+			cvSeqPush(mergedLines, &m); 
+		}
+		else 
+		{
+			cvSeqPush(mergedLines, s); 
+		}
+	}
+
+	return mergedLines; 
+
+}
+
+void DrawLines(IplImage* image, CvSeq* lines, CvScalar color, int thickness = 1)
+{
+	for (int i = 0; i < lines->total; i++)
+	{
+		LineSegment* s = (LineSegment*) cvGetSeqElem(lines, i); 
+		cvLine(image, s->p1, s->p2, color, thickness); 
+	}
+
+}
+
+void update_contours(int)
+{
+	cvScale(g_grabbed, g_contours, 0.5); 
 	cvCopy(g_thresholded, g_contourSource); 
+
+	CvScalar colors[6]; 
+	colors[0] = cvScalar(255, 0, 0);
+	colors[1] = cvScalar(0, 255, 0);
+	colors[2] = cvScalar(0, 0, 255);
+	colors[3] = cvScalar(255, 255, 0);
+	colors[4] = cvScalar(255, 0, 255);
+	colors[5] = cvScalar(0, 255, 255);
 
 	CvContourScanner scanner = cvStartFindContours(g_contourSource, g_storage, sizeof(CvContour), CV_RETR_CCOMP);
 	CvSeq* contour; 
 
-	double max_area = -1; 
-	CvSeq* max_poly = NULL; 
+	CvSeq* lines = cvCreateSeq(0, sizeof(CvSeq), sizeof(LineSegment), g_storage); 
+
+	int points = -1; 
 	while ((contour = cvFindNextContour(scanner)) != NULL)
 	{
-	    CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
+		points = contour->total;
+		//cvDrawContours(g_contours, contour, colors[0], colors[1], 0); 
 
-		double area = pad_border_area(contour, poly); 
-		if (area > -1 && area > max_area)
+		CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, g_contourPolyPrecision / 10.0); 
+
+		//for (int j = 0; j < contour->total; ++j)
+		//{
+		//	CvPoint* vertex = (CvPoint*) cvGetSeqElem(contour, j); 
+		//	cvCircle(g_contours, *vertex, 2, colors[3]); 
+		//}
+
+		for (int j = 0; j < (poly->total)-1; ++j)
 		{
-			max_area = area; 
-			max_poly = poly; 
+			LineSegment s;
+			s.p1 = *((CvPoint*) cvGetSeqElem(poly, j)); 
+			s.p2 = *((CvPoint*) cvGetSeqElem(poly, j+1)); 
+			CvScalar color = colors[3]; 
+			if (length(&s) > g_segmentThreshold)
+			{
+				cvSeqPush(lines, &s); 
+			}
 		}
 	}
 	CvSeq* contours = cvEndFindContours(&scanner); 
 
-	if (max_poly != NULL)
-	{
-		for (int j = 0; j < 4; ++j)
-		{
-			CvPoint* vertex = (CvPoint*) cvGetSeqElem(max_poly, j); 
-			g_border[j].x = vertex->x;
-			g_border[j].y = vertex->y; 
-		}
-		found = true; 
-	}
+	CvSeq* mergedLines = MergeLines(lines, g_storage, g_collinearityThreshold / 10.0, g_maxLineGap, 1.0 - (g_maxAngle / 10)); 
 
-	cvClearMemStorage(g_storage); 
+	DrawLines(g_contours, mergedLines, colors[1], 3); 
+	DrawLines(g_contours, lines, colors[0]); 	
 
-	return found; 
+	cvShowImage("contours", g_contours); 
+}
+
+
+void update_threshold(int)
+{
+	//cvThreshold(g_thresholded, g_thresholded, g_threshold, 255, CV_THRESH_BINARY); 
+	cvCvtColor(g_grabbed, g_thresholded, CV_RGB2GRAY); 
+	cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
+	cvShowImage("thresholded", g_thresholded); 
+	update_contours(0); 
+}
+
+void grab()
+{
+	cvCopy(g_raw, g_grabbed); 
+	cvSmooth(g_grabbed, g_grabbed); 
+	cvShowImage("grabbed", g_grabbed); 
+	update_threshold(0); 
+	//g_currentContour = 0; 
 }
 
 void update()
 {
 	g_raw = cvQueryFrame(g_capture); 
 	cvShowImage("raw", g_raw); 
+}
 
-	cvCopy(g_raw, g_grabbed); 
-	cvSmooth(g_grabbed, g_grabbed); 
+void test()
+{
+	printf("Entering test mode.\n"); 
 
-	cvScale(g_grabbed, g_contours, 0.3); 
+	CvSeq* lines = cvCreateSeq(0, sizeof(CvSeq), sizeof(LineSegment), g_storage); 
 
-	if (g_appState == APPSTATE_READY)
+	int numLines = 10; 
+
+	CvMat* points = cvCreateMat(numLines, 4, CV_8U); 
+	cvZero(points); 
+
+	CvRNG rng = cvRNG(); 
+
+	CvScalar minxy = cvScalar(0); 
+	CvScalar maxxy = cvScalar(min(g_grabbed->width, g_grabbed->height));
+
+	while (true)
 	{
-		for (int j = 0; j < 4; ++j)
+		int key = cvWaitKey(33); 
+		if ((key == 27) || (key == 'q'))
 		{
-			CvPoint vertex = g_border[j]; 
-			CvPoint nextVertex = g_border[(j+1)%4];
-			cvLine(g_contours, vertex, nextVertex, cvScalar(0, 0, 255)); 
-			cvCircle(g_contours, vertex, 2, cvScalar(0, 255, 255)); 
+			break; 
 		}
+		else if (key == 'g')
+		{
+			cvClearSeq(lines); 
+			cvRandArr(&rng, points, CV_RAND_UNI, minxy, maxxy); 
+
+			for (int i = 0; i < numLines; i++)
+			{
+				LineSegment s; 
+				s.p1.x = (int) cvGet2D(points, i, 0).val[0]; 
+				s.p1.y = (int) cvGet2D(points, i, 1).val[0]; 
+				s.p2.x = (int) cvGet2D(points, i, 2).val[0]; 
+				s.p2.y = (int) cvGet2D(points, i, 3).val[0]; 
+				cvSeqPush(lines, &s); 
+			}
+		}
+
+		CvSeq* mergedLines = MergeLines(lines, g_storage, g_collinearityThreshold / 10.0, g_maxLineGap, 1.0 - (g_maxAngle / 10)); 
+
+		cvZero(g_test); 
+		DrawLines(g_test, mergedLines, CV_RGB(255, 255, 0), 3); 
+		DrawLines(g_test, lines, CV_RGB(0, 0, 255)); 
+		cvShowImage("test", g_test); 
 	}
-
-	cvShowImage("contours", g_contours); 
-
+	printf("Exiting test mode.\n"); 
 }
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	g_capture = cvCreateCameraCapture(0); 
+	g_capture = cvCreateCameraCapture(g_camera); 
 
 	cvNamedWindow("raw"); 
 	cvNamedWindow("grabbed"); 
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("contours"); 
-	cvNamedWindow("foreground"); 
-	cvNamedWindow("background"); 
-	cvNamedWindow("backstd"); 
+	cvNamedWindow("test"); 
 
 	g_raw = cvQueryFrame(g_capture); 
-	
-	CvMat* background[BACKGROUND_FRAMES]; 
-	for (int i = 0; i < BACKGROUND_FRAMES; ++i)
-	{
-		background[i] = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
-	}
-	CvMat* backgroundMean = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
-	CvMat* backgroundVariance = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3); 
-	CvMat* backgroundStd = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
-	CvMat* backgroundScratch = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
-	CvMat* backgroundMin = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
-	CvMat* backgroundMax = cvCreateMat(g_raw->height, g_raw->width, CV_32FC3);  
-	IplImage* backgroundMeanImg = cvCreateImage(cvGetSize(g_raw), IPL_DEPTH_32F, 3); 
-	IplImage* backgroundStdImg = cvCreateImage(cvGetSize(g_raw), IPL_DEPTH_32F, 3); 
-	IplImage* basis = cvCloneImage(g_raw); 
-	g_foreground = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	g_forehsv = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
-	g_foreh = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	g_fores = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	g_forev = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_grabbed = cvCloneImage(g_raw); 
+	g_test = cvCloneImage(g_raw); 
 	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contourSource = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_contours = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 3); 
-	CvMat* borderPoly = cvCreateMat(4, 1, CV_32FC2);
+
+	g_morphKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
 
 	g_storage = cvCreateMemStorage(); 
 
-	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, NULL); 
-	cvCreateTrackbar("poly prec", "contours", &g_contourPolyPrecision, 50, NULL); 
-	cvCreateTrackbar("area %", "contours", &g_contourArea, 100, NULL); 
-	cvCreateTrackbar("H", "foreground", &g_foregroundH, 255, NULL); 
-	cvCreateTrackbar("H window", "foreground", &g_foregroundHWindow, 255, NULL); 
-	cvCreateTrackbar("S", "foreground", &g_foregroundS, 255, NULL); 
-	cvCreateTrackbar("V", "foreground", &g_foregroundV, 255, NULL); 
+	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
+	cvCreateTrackbar("max_depth", "contours", &g_maxDepth, 20, update_contours); 
+	cvCreateTrackbar("poly precision", "contours", &g_contourPolyPrecision, 50, update_contours); 
+	cvCreateTrackbar("seg thresh", "contours", &g_segmentThreshold, 100, update_contours); 
+	cvCreateTrackbar("collin thresh", "contours", &g_collinearityThreshold, 200, update_contours); 
+	cvCreateTrackbar("line gap", "contours", &g_maxLineGap, 200, update_contours); 
+	cvCreateTrackbar("angle", "contours", &g_maxAngle, 100, update_contours); 
 
-	update(); 
+	//update(); 
 
-	printf("r = reset\n"); 
+#if FRAME_AT_A_TIME
+	printf("g = grab frame\n"); 
+#endif
+	printf("c = camera switch\n"); 
 	printf("\n"); 
-	printf("Escape to exit\n"); 
-	printf("\n"); 
-	printf("Acquiring border...\n"); 
+	printf("Escape (or q) to exit\n"); 
 
-	int backgroundFrame = 0; 
-	int conversion = CV_BGR2HSV; 
 	while (true)
 	{
 		int key = cvWaitKey(33); 
 		update(); 
+#if !FRAME_AT_A_TIME
+		grab();
+#endif
 		if ((key == 27) || (key == 'q'))
 		{
 			break; 
 		}
-		else if ((key == 'r') || (key == 'R'))
+		else if (key == 'c')
 		{
-			backgroundFrame = 0; 
-			g_appState = APPSTATE_ACQUIRING_BORDER; 
-			printf("Acquiring border...\n"); 
+			g_camera = g_camera ? 0 : 1; 
+			cvReleaseCapture(&g_capture); 
+			g_capture = cvCreateCameraCapture(g_camera); 
 		}
-		else
+#if FRAME_AT_A_TIME
+		else if (key == 'g')
 		{
-			update(); 
-			if (g_appState == APPSTATE_ACQUIRING_BORDER)
-			{
-				if (find_border())
-				{
-					for (int i = 0; i < 4; ++i)
-					{
-						CvPoint point = g_border[i]; 
-						cvSet1D(borderPoly, i, cvScalar(point.x, point.y)); 
-					}
-
-					g_appState = APPSTATE_ACCUMULATING_BACKGROUND; 
-					printf("Border acquired - accumulating background\n"); 
-
-					for (int i = 0; i < 4; ++i)
-					{
-						printf("%d: (%d, %d)\n", i, g_border[i].x, g_border[i].y); 
-					}
-				}
-			}
-			else if (g_appState == APPSTATE_ACCUMULATING_BACKGROUND)
-			{
-				if (backgroundFrame == 0)
-				{
-					cvZero(backgroundMean); 
-					cvZero(backgroundVariance); 
-					cvZero(backgroundMax); 
-					cvSet(backgroundMin, cvScalar(255, 255, 255)); 
-				}
-
-				//cvCvtColor(g_raw, g_background, CV_RGB2HSV); 
-				//cvSplit(g_background, g_backh, g_backs, g_backv, NULL); 
-				if (backgroundFrame < BACKGROUND_FRAMES)
-				{
-					CopyImageToMatrix(g_raw, background[backgroundFrame]); 
-					cvCvtColor(background[backgroundFrame], background[backgroundFrame], conversion); 
-					++backgroundFrame; 
-				}
-				else
-				{
-					for (int i = 0; i < BACKGROUND_FRAMES; i++)
-					{
-						cvAcc(background[i], backgroundMean); 
-						cvMin(backgroundMin, background[i], backgroundMin); 
-						cvMax(backgroundMax, background[i], backgroundMax); 
-					}
-
-					cvScale(backgroundMean, backgroundMean, 1.0/(double)BACKGROUND_FRAMES); 
-
-					for (int i = 0; i < BACKGROUND_FRAMES; i++)
-					{
-						cvSub(background[i], backgroundMean, backgroundScratch); 
-						cvSquareAcc(backgroundScratch, backgroundVariance); 
-					}
-
-					cvScale(backgroundVariance, backgroundVariance, 1.0/(double)BACKGROUND_FRAMES); 
-					cvPow(backgroundVariance, backgroundStd, 0.5); 
-
-					CopyMatrixToImage(backgroundMean, backgroundMeanImg); 
-					CopyMatrixToImage(backgroundStd, backgroundStdImg); 
-
-					cvScale(backgroundMeanImg, backgroundMeanImg, 1.0/256.0); 
-					cvScale(backgroundStdImg, backgroundStdImg, 1.0/256.0);	
-					cvShowImage("background", backgroundMeanImg); 
-					cvShowImage("backstd", backgroundStdImg);
-
-					g_appState = APPSTATE_READY; 
-					printf("Background acquired. Ready to record clicks.\n"); 
-				}
-			}
-			else if (g_appState == APPSTATE_READY)
-			{
-				//cvCvtColor(g_raw, g_forehsv, CV_RGB2HSV); 
-				//cvSplit(g_forehsv, g_foreh, g_fores, g_forev, NULL); 
-				//cvAbsDiff(g_fores, g_backs, g_foreground); 
-				//cvSmooth(g_foreground, g_foreground); 
-				//cvAdaptiveThreshold(g_foreground, g_foreground, 255, 0, CV_THRESH_BINARY_INV, 11, g_foregroundThreshold); 
-				//cvThreshold(g_foreground, g_foreground, g_foregroundThreshold, 255, CV_THRESH_BINARY);
-
-				cvZero(g_foreground); 
-				cvCvtColor(g_raw, basis, conversion); 
-
-				for (int y = 0; y < basis->height; y++)
-				{
-					for (int x = 0; x < basis->width; x++)
-					{
-						CvPoint2D32f point; 
-						point.x = (float) x; 
-						point.y = (float) y; 
-						if (cvPointPolygonTest(borderPoly, point, 0) > 0)
-						{
-							CvScalar raw = cvGet2D(basis, y, x); 
-							CvScalar bgm = cvGet2D(backgroundMean, y, x); 
-							CvScalar bgs = cvGet2D(backgroundStd, y, x); 
-							CvScalar bgmin = cvGet2D(backgroundMin, y, x); 
-							CvScalar bgmax = cvGet2D(backgroundMax, y, x); 
-
-							bool result = false; 
-
-							if ((abs(raw.val[0] - g_foregroundH) < g_foregroundHWindow)
-								&& (raw.val[1] > g_foregroundS)
-								&& (raw.val[2] > g_foregroundV))
-							{
-								result = true; 
-							}
-
-							if (result)
-							{
-								cvSet2D(g_foreground, y, x, cvScalar(255));
-							}
-						}
-					}
-				}
-
-				cvShowImage("foreground", g_foreground); 
-			}
+			grab(); 
+		}
+#endif
+		else if (key == 't')
+		{
+			test(); 
 		}
 	}
+
+    /*
+	CvMemStorage* storage = cvCreateMemStorage(); 
+	CvSeq* firstContour = NULL; 
+	cvFindContours(raw, storage, &firstContour);
+
+	cvDrawContours(scaled, firstContour, 
+    
+	cvReleaseMemStorage(&storage); 
+	*/
 
 	// TODO: Other cleanup
 	cvReleaseCapture(&g_capture); 
@@ -348,5 +473,4 @@ int _tmain(int argc, _TCHAR* argv[])
 	
 	return 0;
 }
-
 
