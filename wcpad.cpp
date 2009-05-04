@@ -143,6 +143,11 @@ CvSeq* MergeLines(CvSeq* lines, CvMemStorage* storage, double collinearityThresh
 
 }
 
+CvPoint Point(CvPoint2D32f p)
+{
+	return cvPoint((int) (p.x + 0.5), (int) (p.y + 0.5)); 
+}
+
 void DrawQuadranges(IplImage* image, CvSeq* quadrangles, CvScalar color, int thickness = 1)
 {
 	for (int i = 0; i < quadrangles->total; i++)
@@ -150,7 +155,7 @@ void DrawQuadranges(IplImage* image, CvSeq* quadrangles, CvScalar color, int thi
 		Quadrangle* q = (Quadrangle*) cvGetSeqElem(quadrangles, i); 
 		for (int i = 0; i < 4; ++i)
 		{
-			cvLine(image, q->p[i], q->p[(i+1)%4], color, thickness); 
+			cvLine(image, Point(q->p[i]), Point(q->p[(i+1)%4]), color, thickness); 
 		}
 	}
 }
@@ -210,7 +215,9 @@ CvSeq* FindQuadrangles(IplImage* image, CvMemStorage* storage, double precision,
 						Quadrangle q; 
 						for (int i = 0; i < 4; i++)
 						{
-							q.p[i] = *((CvPoint*) cvGetSeqElem(poly, i)); 
+							CvPoint p = *((CvPoint*) cvGetSeqElem(poly, i)); 
+							q.p[i].x = (float) p.x; 
+							q.p[i].y = (float) p.y; 
 						}
 						cvSeqPush(quadrangles, &q); 
 					}
@@ -327,6 +334,20 @@ CvSeq* FilterQuadrangles(CvSeq* quadrangles, CvMemStorage* storage)
 	return filtered; 
 }
 
+CvSeq* RefineQuadrangles(CvSeq* quadrangles, CvArr* image, CvMemStorage* storage)
+{
+	CvSeq* refined = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
+
+	for (int i = 0; i < quadrangles->total; i++)
+	{
+		Quadrangle q = *((Quadrangle*) cvGetSeqElem(quadrangles, i)); 
+		cvFindCornerSubPix(image, (CvPoint2D32f*) &q, 4, cvSize(5, 5), cvSize(-1, -1), cvTermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 20, 0.03)); 
+
+		cvSeqPush(refined, &q); 
+	}
+
+	return refined; 
+}
 void update_contours(int)
 {
 	//cvCvtColor(g_thresholded, g_contours, CV_GRAY2BGR); 
@@ -334,33 +355,25 @@ void update_contours(int)
 	cvScale(g_contours, g_contours, 0.5); 
 	cvCopy(g_thresholded, g_contourSource); 
 
-	CvScalar blue = cvScalar(255, 0, 0);
-	CvScalar green = cvScalar(0, 255, 0);
-	CvScalar red = cvScalar(0, 0, 255);
-	CvScalar cyan = cvScalar(255, 255, 0);
-	CvScalar pink = cvScalar(255, 0, 255);
-	CvScalar yellow = cvScalar(0, 255, 255);
+	//CvScalar blue = cvScalar(255, 0, 0);
+	//CvScalar green = cvScalar(0, 255, 0);
+	//CvScalar red = cvScalar(0, 0, 255);
+	//CvScalar cyan = cvScalar(255, 255, 0);
+	//CvScalar pink = cvScalar(255, 0, 255);
+	//CvScalar yellow = cvScalar(0, 255, 255);
 
-	CvScalar colors[6]; 
-	colors[0] = blue; 
-	colors[1] = green; 
-	colors[2] = red;
-	colors[3] = cyan; 
-	colors[4] = pink; 
-	colors[5] = yellow;
+	//CvScalar colors[6]; 
+	//colors[0] = blue; 
+	//colors[1] = green; 
+	//colors[2] = red;
+	//colors[3] = cyan; 
+	//colors[4] = pink; 
+	//colors[5] = yellow;
 
 	//CvSeq* lines = FindLines(g_contourSource, g_storage, g_contourPolyPrecision / 10.0, g_segmentThreshold); 
 	//DrawLines(g_contours, lines, yellow); 	
 
-	CvSeq* quadrangles = FindQuadrangles(
-		g_contourSource, 
-		g_storage, 
-		g_contourPolyPrecision / 10.0, 
-		g_segmentThreshold, 
-		g_minArea / 100.0 * (g_thresholded->width * g_thresholded->height)); 
-	CvSeq* filteredQuadrangles = FilterQuadrangles(quadrangles, g_storage); 
-	DrawQuadranges(g_contours, filteredQuadrangles, red); 
-
+	
 	cvShowImage("contours", g_contours); 
 }
 
@@ -379,7 +392,7 @@ void grab()
 	cvCopy(g_raw, g_grabbed); 
 	cvSmooth(g_grabbed, g_grabbed); 
 	cvShowImage("grabbed", g_grabbed); 
-	update_threshold(0); 
+//	update_threshold(0); 
 	//g_currentContour = 0; 
 }
 
@@ -443,12 +456,19 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_capture = cvCreateCameraCapture(g_camera); 
 
 	cvNamedWindow("raw"); 
+	cvNamedWindow("raw1"); 
+	cvNamedWindow("raw2");
+	cvNamedWindow("raw3"); 
 	cvNamedWindow("grabbed"); 
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("contours"); 
 	cvNamedWindow("test"); 
 
 	g_raw = cvQueryFrame(g_capture); 
+	IplImage* rawConvert = cvCloneImage(g_raw); 
+	IplImage* raw1 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	IplImage* raw2 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	IplImage* raw3 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_grabbed = cvCloneImage(g_raw); 
 	g_test = cvCloneImage(g_raw); 
 	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
@@ -459,23 +479,42 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	g_storage = cvCreateMemStorage(); 
 
-	cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
-	cvCreateTrackbar("max_depth", "contours", &g_maxDepth, 20, update_contours); 
-	cvCreateTrackbar("poly precision", "contours", &g_contourPolyPrecision, 50, update_contours); 
-	cvCreateTrackbar("seg thresh", "contours", &g_segmentThreshold, 100, update_contours); 
-	cvCreateTrackbar("collin thresh", "contours", &g_collinearityThreshold, 200, update_contours); 
-	cvCreateTrackbar("line gap", "contours", &g_maxLineGap, 200, update_contours); 
-	cvCreateTrackbar("angle", "contours", &g_maxAngle, 100, update_contours); 
-	cvCreateTrackbar("area", "contours", &g_minArea, 100, update_contours); 
+	//cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
+	//cvCreateTrackbar("max_depth", "contours", &g_maxDepth, 20, update_contours); 
+	//cvCreateTrackbar("poly precision", "contours", &g_contourPolyPrecision, 50, update_contours); 
+	//cvCreateTrackbar("seg thresh", "contours", &g_segmentThreshold, 100, update_contours); 
+	//cvCreateTrackbar("collin thresh", "contours", &g_collinearityThreshold, 200, update_contours); 
+	//cvCreateTrackbar("line gap", "contours", &g_maxLineGap, 200, update_contours); 
+	//cvCreateTrackbar("angle", "contours", &g_maxAngle, 100, update_contours); 
+	//cvCreateTrackbar("area", "contours", &g_minArea, 100, update_contours); 
 
 	//update(); 
+
+    CvScalar blue = cvScalar(255, 0, 0);
+	CvScalar green = cvScalar(0, 255, 0);
+	CvScalar red = cvScalar(0, 0, 255);
+	CvScalar cyan = cvScalar(255, 255, 0);
+	CvScalar pink = cvScalar(255, 0, 255);
+	CvScalar yellow = cvScalar(0, 255, 255);
+
+	CvScalar colors[6]; 
+	colors[0] = blue; 
+	colors[1] = green; 
+	colors[2] = red;
+	colors[3] = cyan; 
+	colors[4] = pink; 
+	colors[5] = yellow;
+
 
 #if FRAME_AT_A_TIME
 	printf("g = grab frame\n"); 
 #endif
 	printf("c = camera switch\n"); 
+	printf("r = reset\n"); 
 	printf("\n"); 
 	printf("Escape (or q) to exit\n"); 
+
+	CvSeq* borders = NULL; 
 
 	while (true)
 	{
@@ -494,6 +533,11 @@ int _tmain(int argc, _TCHAR* argv[])
 			cvReleaseCapture(&g_capture); 
 			g_capture = cvCreateCameraCapture(g_camera); 
 		}
+		else if (key == 'r')
+		{
+			g_appState = APPSTATE_ACQUIRING_BORDER; 
+			printf("Acquiring border.\n"); 
+		}
 #if FRAME_AT_A_TIME
 		else if (key == 'g')
 		{
@@ -506,6 +550,29 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 		else
 		{
+			/*cvCvtColor(g_raw, rawScratch, CV_BGR2HLS); 
+			cvSplit(rawScratch, raw1, raw2, raw3, NULL); */
+
+
+			cvCvtColor(g_grabbed, g_thresholded, CV_RGB2GRAY); 
+			cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
+			cvShowImage("thresholded", g_thresholded); 
+
+			cvCopy(g_thresholded, g_contourSource); 
+
+			CvSeq* quadrangles = FindQuadrangles(
+				g_contourSource, 
+				g_storage, 
+				g_contourPolyPrecision / 10.0, 
+				g_segmentThreshold, 
+				g_minArea / 100.0 * (g_thresholded->width * g_thresholded->height)); 
+			CvSeq* filtered = FilterQuadrangles(quadrangles, g_storage); 
+			borders = RefineQuadrangles(filtered, g_thresholded, g_storage); 
+
+			cvCopy(g_grabbed, g_contours); 
+			cvScale(g_contours, g_contours, 0.25); 
+			DrawQuadranges(g_contours, borders, red); 
+			cvShowImage("contours", g_contours); 
 		}
 	}
 

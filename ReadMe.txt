@@ -1,6 +1,6 @@
 TODO: 
 
-* Try tracking corner points - what happens when corner is obscured? 
+* Try tracking corner points - what happens when corner is obscured? And then comes back? 
 * How does gathering more noise data affect finger detection? 
 * Would more smoothing help? 
 * What about a L2 metric between color data? 

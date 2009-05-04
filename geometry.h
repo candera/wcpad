@@ -6,7 +6,7 @@ typedef struct LineSegment
 
 typedef struct Quadrangle
 {
-	CvPoint p[4]; 
+	CvPoint2D32f p[4]; 
 } Quadrangle; 
 
 double min4(double a, double b, double c, double d)
