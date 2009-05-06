@@ -37,12 +37,25 @@ double length2(CvPoint* p1, CvPoint* p2)
 	return ((dx * dx) + (dy * dy)); 
 }
 
+double length2(CvPoint2D32f* p1, CvPoint2D32f* p2)
+{
+	double dx = p1->x - p2->x; 
+	double dy = p1->y - p2->y; 
+
+	return ((dx * dx) + (dy * dy)); 
+}
+
 double length2(LineSegment* s)
 {
 	return length2(&(s->p1), &(s->p2)); 
 }
 
 double length(CvPoint* p1, CvPoint* p2)
+{
+	return sqrt(length2(p1, p2)); 
+}
+
+double length(CvPoint2D32f* p1, CvPoint2D32f* p2)
 {
 	return sqrt(length2(p1, p2)); 
 }
