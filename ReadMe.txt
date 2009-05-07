@@ -1,5 +1,6 @@
 TODO: 
 
+* Update test square to have vx & vx components: 
 * Try tracking corner points - what happens when corner is obscured? And then comes back? 
 * How does gathering more noise data affect finger detection? 
 * Would more smoothing help? 
