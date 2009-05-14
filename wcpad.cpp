@@ -19,7 +19,7 @@ int g_segmentThreshold = 10; // Pixels
 int g_collinearityThreshold = 104; // Tenths of pixels
 int g_maxLineGap = 75; // Pixels
 int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any angle
-int g_camera = 1; 
+int g_camera = 0; 
 int g_minArea = 3; // Percent of total area
 int g_trackingThreshold = 20; // Pixels - max distance a corner can move and be considered the same
 
@@ -209,12 +209,9 @@ CvSeq* FindContours(IplImage* image, CvMemStorage* storage, double precision, do
 
 		for (int i = 0; i < poly->total; ++i)
 		{
-			LineSegment s; 
-			CvPoint p0 = *((CvPoint*) cvGetSeqElem(poly, (i-1)%(poly->total))); 
-			CvPoint p1 = *((CvPoint*) cvGetSeqElem(poly, i)); 
-			s.p1 = p0;
-			s.p2 = p1;
-			if (length(&s) < minLength)
+			CvPoint* p0 = (CvPoint*) cvGetSeqElem(poly, (i-1)%(poly->total)); 
+			CvPoint* p1 = (CvPoint*) cvGetSeqElem(poly, i); 
+			if (length2(p0, p1) < (minLength * minLength))
 			{
 				if (currentContour != NULL)
 				{
@@ -227,9 +224,9 @@ CvSeq* FindContours(IplImage* image, CvMemStorage* storage, double precision, do
 				if (currentContour == NULL)
 				{
 					currentContour = cvCreateSeq(CV_SEQ_ELTYPE_POINT, sizeof(CvSeq), sizeof(CvPoint), storage); 
-					cvSeqPush(currentContour, &p0); 
+					cvSeqPush(currentContour, p0); 
 				}
-				cvSeqPush(currentContour, &p1); 
+				cvSeqPush(currentContour, p1); 
 			}
 		}
 
@@ -593,7 +590,7 @@ void TestQuadrangleArea()
 }
 
 
-void TrackQuadrangles(IplImage* source, CvSeq* borders)
+void TrackQuadrangles(IplImage* source, CvSeq* borders, CvSeq** pContours = NULL)
 {
 	cvCvtColor(source, g_thresholded, CV_RGB2GRAY); 
 	cvSmooth(g_thresholded, g_thresholded, 2, 5); 
@@ -602,8 +599,14 @@ void TrackQuadrangles(IplImage* source, CvSeq* borders)
 
 	cvCopy(g_thresholded, g_contourSource); 
 
-	CvSeq* contours = FindContours(g_contourSource, g_storage, g_contourPolyPrecision / 10.0, g_segmentThreshold); 
-	CvSeq* quadrangles = FindQuadrangles(contours, g_storage, g_minArea / 100.0 * (g_contourSource->width * g_contourSource->height)); 
+	CvSeq* contours; 
+	if (pContours == NULL)
+	{
+		pContours = &contours; 
+	}
+
+	*pContours = FindContours(g_contourSource, g_storage, g_contourPolyPrecision / 10.0, g_segmentThreshold); 
+	CvSeq* quadrangles = FindQuadrangles(*pContours, g_storage, g_minArea / 100.0 * (g_contourSource->width * g_contourSource->height)); 
 
 	CvSeq* rejects = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), g_storage); 
 
@@ -648,6 +651,75 @@ void TrackQuadrangles(IplImage* source, CvSeq* borders)
 	}
 }
 
+CvMat* Square()
+{
+	CvMat* c = cvCreateMat(3, 5, CV_32FC1); 
+	cvSet2D(c, 0, 0, cvScalar(-1)); 
+	cvSet2D(c, 1, 0, cvScalar(-1)); 
+	cvSet2D(c, 2, 0, cvScalar(1)); 
+	cvSet2D(c, 0, 1, cvScalar(1)); 
+	cvSet2D(c, 1, 1, cvScalar(-1)); 
+	cvSet2D(c, 2, 1, cvScalar(1)); 
+	cvSet2D(c, 0, 2, cvScalar(1)); 
+	cvSet2D(c, 1, 2, cvScalar(1)); 
+	cvSet2D(c, 2, 2, cvScalar(1)); 
+	cvSet2D(c, 0, 3, cvScalar(-1)); 
+	cvSet2D(c, 1, 3, cvScalar(1)); 
+	cvSet2D(c, 2, 3, cvScalar(1)); 
+	cvSet2D(c, 0, 4, cvScalar(-1)); 
+	cvSet2D(c, 1, 4, cvScalar(-1)); 
+	cvSet2D(c, 2, 4, cvScalar(1)); 
+
+	return c; 
+}
+
+CvMat* GapOneSide()
+{
+	CvMat* c = cvCreateMat(3, 6, CV_32FC1); 
+	cvSet2D(c, 0, 0, cvScalar(-0.5)); 
+	cvSet2D(c, 1, 0, cvScalar(1)); 
+	cvSet2D(c, 2, 0, cvScalar(1)); 
+	cvSet2D(c, 0, 1, cvScalar(-1)); 
+	cvSet2D(c, 1, 1, cvScalar(1)); 
+	cvSet2D(c, 2, 1, cvScalar(1)); 
+	cvSet2D(c, 0, 2, cvScalar(-1)); 
+	cvSet2D(c, 1, 2, cvScalar(-1)); 
+	cvSet2D(c, 2, 2, cvScalar(1)); 
+	cvSet2D(c, 0, 3, cvScalar(1)); 
+	cvSet2D(c, 1, 3, cvScalar(-1)); 
+	cvSet2D(c, 2, 3, cvScalar(1)); 
+	cvSet2D(c, 0, 4, cvScalar(1)); 
+	cvSet2D(c, 1, 4, cvScalar(1)); 
+	cvSet2D(c, 2, 4, cvScalar(1)); 
+	cvSet2D(c, 0, 5, cvScalar(0.5)); 
+	cvSet2D(c, 1, 5, cvScalar(1)); 
+	cvSet2D(c, 2, 5, cvScalar(1)); 
+
+	return c; 
+}
+
+CvMat* MissingCorner()
+{
+	CvMat* c = cvCreateMat(3, 5, CV_32FC1); 
+	cvSet2D(c, 0, 0, cvScalar(-1)); 
+	cvSet2D(c, 1, 0, cvScalar(0)); 
+	cvSet2D(c, 2, 0, cvScalar(1)); 
+	cvSet2D(c, 0, 1, cvScalar(-1)); 
+	cvSet2D(c, 1, 1, cvScalar(-1)); 
+	cvSet2D(c, 2, 1, cvScalar(1)); 
+	cvSet2D(c, 0, 2, cvScalar(1)); 
+	cvSet2D(c, 1, 2, cvScalar(-1)); 
+	cvSet2D(c, 2, 2, cvScalar(1)); 
+	cvSet2D(c, 0, 3, cvScalar(1)); 
+	cvSet2D(c, 1, 3, cvScalar(1)); 
+	cvSet2D(c, 2, 3, cvScalar(1)); 
+	cvSet2D(c, 0, 4, cvScalar(0)); 
+	cvSet2D(c, 1, 4, cvScalar(1)); 
+	cvSet2D(c, 2, 4, cvScalar(1)); 
+
+	return c; 
+}
+
 void test()
 {
 	printf("Entering test mode.\n"); 
@@ -663,28 +735,23 @@ void test()
 
 	//DrawContours(g_contours, contours, red); 
 
-	CvMat* c = cvCreateMat(3, 4, CV_32FC1); 
-	CvMat* p = cvCreateMat(2, 4, CV_32FC1); 
-	cvSet2D(c, 0, 0, cvScalar(-1)); 
-	cvSet2D(c, 1, 0, cvScalar(-1)); 
-	cvSet2D(c, 2, 0, cvScalar(1)); 
-	cvSet2D(c, 0, 1, cvScalar(1)); 
-	cvSet2D(c, 1, 1, cvScalar(-1)); 
-	cvSet2D(c, 2, 1, cvScalar(1)); 
-	cvSet2D(c, 0, 2, cvScalar(1)); 
-	cvSet2D(c, 1, 2, cvScalar(1)); 
-	cvSet2D(c, 2, 2, cvScalar(1)); 
-	cvSet2D(c, 0, 3, cvScalar(-1)); 
-	cvSet2D(c, 1, 3, cvScalar(1)); 
-	cvSet2D(c, 2, 3, cvScalar(1)); 
+	//CvMat* c = Square(); 
+	//CvMat* c = GapOneSide(); 
+	CvMat* c = MissingCorner(); 
+	CvMat* p = cvCreateMat(2, c->cols, CV_32FC1); 
 
 	int t = 0; 
-	double w = 1.0; 
-	double vx = 0.01; 
+	double w = 4.0; 
+	double vx = 0.10; 
 	double vy = 0.01; 
+	bool drawSegments = false; 
+	bool paused = false; 
 	for (;;)
 	{
-		t++; 
+		if (!paused)
+		{
+			t++; 
+		}
 		int key = cvWaitKey(33); 
 
 		if (key == 'q')
@@ -719,6 +786,14 @@ void test()
 		{
 			cvClearSeq(borders); 
 		}
+		else if (key == 'l')
+		{
+			drawSegments = !drawSegments; 
+		}
+		else if (key == 'p')
+		{
+			paused = !paused; 
+		}
 		else if (key != -1)
 		{
 			printf("Keypress: 0x%X\n", key); 
@@ -731,9 +806,9 @@ void test()
 
 		cvMatMul(rot, c, p); 
 
-		for (int i = 0; i < 4; i++)
+		for (int i = 1; i < c->cols; i++)
 		{
-			int j = (i + 1)%4; 
+			int j = i-1; 
 			CvPoint center = cvPoint((int) (300.0 + 100.0 * sin(t * vx)), (int) (300.0 + 100.0 * cos(t * vy))); 
 			CvPoint a = cvPoint((int) (cvGetReal2D(p, 0, i) + center.x), (int) (cvGetReal2D(p, 1, i) + center.y)); 
 			CvPoint b = cvPoint((int) (cvGetReal2D(p, 0, j) + center.x), (int) (cvGetReal2D(p, 1, j) + center.y)); 
@@ -742,11 +817,17 @@ void test()
 
 		cvShowImage("test", source); 
 
-		TrackQuadrangles(source, borders); 
+		CvSeq* contours; 
+		TrackQuadrangles(source, borders, &contours); 
+
 
 		cvCopy(source, g_contours); 
 		cvScale(g_contours, g_contours, 0.25); 
 		DrawQuadrangles(g_contours, borders, green); 
+		if (drawSegments)
+		{
+			DrawContours(g_contours, contours, red); 
+		}
 		cvShowImage("contours", g_contours); 
 	}
 
