@@ -22,6 +22,7 @@ int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any 
 int g_camera = 0; 
 int g_minArea = 3; // Percent of total area
 int g_trackingThreshold = 20; // Pixels - max distance a corner can move and be considered the same
+int g_alignmentThreshold = 20; // Pixels - max distance a C4S3 quad can misalign sides and corners
 
 CvCapture* g_capture; 
 IplImage* g_raw; 
@@ -41,117 +42,12 @@ CvScalar pink = cvScalar(255, 0, 255);
 CvScalar yellow = cvScalar(0, 255, 255);
 
 
-
-
-int CollinearWithAny(CvSeq* lines, LineSegment* s, double maxDistanceFromFitLine, double maxAllowableGap, double maxAngle)
+typedef struct Border
 {
-	for (int i = 0; i < lines->total; i++)
-	{
-		LineSegment* t = (LineSegment*) cvGetSeqElem(lines, i); 
-		
-		double d1 = PointToLineDistance(&(t->p1), s);
-		double d2 = PointToLineDistance(&(t->p2), s); 
+	Quadrangle quadrangle; 
+	int age; 
+} Border; 
 
-		// Taylor series approximation for cosine in degrees
-		double minCos = 1.0 - (3.0462E-4 * maxAngle * maxAngle); 
-
-		double gap2 = Gap2(s, t); 
-
-		if (	(d1 < maxDistanceFromFitLine) 
-			&&	(d2 < maxDistanceFromFitLine) 
-			&&	(gap2 < (maxAllowableGap * maxAllowableGap))
-			&&  (fabs(DotNormal(s, t)) > minCos))
-		{
-			return i; 
-		}
-	}
-
-	return -1; 
-}
-
-void MergeLineSegments(LineSegment* s1, LineSegment* s2, LineSegment* m) 
-{
-	CvPoint2D32f points[4]; 
-	points[0] = cvPoint2D32f(s1->p1.x, s1->p1.y); 
-	points[1] = cvPoint2D32f(s1->p2.x, s1->p2.y); 
-	points[2] = cvPoint2D32f(s2->p1.x, s2->p1.y); 
-	points[3] = cvPoint2D32f(s2->p2.x, s2->p2.y); 
-	
-	float line[4]; 
-
-	cvFitLine2D(points, 4, CV_DIST_L2, 0, 0.01F, 0.01F, line); 
-
-	LineSegment s3; 
-	s3.p1 = cvPoint((int) line[2], (int) line[3]); 
-	s3.p2 = cvPoint((int) (line[2] + (line[0] * 1000)), (int) (line[3] + (line[1] * 1000))); 
-
-	double minu = 1e20; 
-	double maxu = -1e20;
-	int minIndex = 0;
-	int maxIndex = 0; 
-
-	for (int i = 0; i < 4; i++)
-	{
-		CvPoint pt = cvPoint((int) points[i].x, (int) points[i].y); 
-		double u = IndexOnLineNearestPoint(&pt, &s3); 
-
-		if (u < minu)
-		{
-			minIndex = i; 
-			minu = u; 
-		}
-
-		if (u > maxu)
-		{
-			maxIndex = i; 
-			maxu = u; 
-		}
-	}
-
-	m->p1 = PointAlongLine(minu, &s3);
-	m->p2 = PointAlongLine(maxu, &s3); 
-}
-
-// Used to sort line segments in order of decreasing length
-int LineSegmentLengthCompareDecreasingLength(const void* a, const void* b, void*)
-{
-	double la = length((LineSegment*)a); 
-	double lb = length((LineSegment*)b); 
-
-	return (la > lb) ? -1 : (la < lb) ? 1 : 0; 
-}
-
-CvSeq* MergeLines(CvSeq* lines, CvMemStorage* storage, double collinearityThreshold, double maxLineGap, double maxAngle)
-{
-	cvSeqSort(lines, LineSegmentLengthCompareDecreasingLength); 
-
-	CvSeq* mergedLines = cvCreateSeq(0, sizeof(CvSeq), sizeof(LineSegment), storage); 
-
-	for (int i = 0; i < lines->total; i++)
-	{
-		LineSegment* s = (LineSegment*) cvGetSeqElem(lines, i); 
-
-		int index = -1; 
-		if ((index = CollinearWithAny(mergedLines, s, collinearityThreshold, maxLineGap, maxAngle)) != -1)
-		{
-			LineSegment* s2 = (LineSegment*) cvGetSeqElem(mergedLines, index); 
-
-			LineSegment m; 
-			MergeLineSegments(s, s2, &m); 
-
-			cvSeqRemove(mergedLines, index); 
-
-			cvSeqPush(mergedLines, &m); 
-		}
-		else 
-		{
-			cvSeqPush(mergedLines, s); 
-		}
-	}
-
-	return mergedLines; 
-
-}
 
 CvPoint Point(CvPoint2D32f p)
 {
@@ -194,7 +90,7 @@ void DrawContours(IplImage* image, CvSeq* contours, CvScalar color, int thicknes
 	}
 }
 
-CvSeq* FindContours(IplImage* image, CvMemStorage* storage, double precision, double minLength)
+CvSeq* FindContours(IplImage* image, CvMemStorage* storage, float precision, float minLength)
 {
 	CvContourScanner scanner = cvStartFindContours(image, storage, sizeof(CvContour), CV_RETR_CCOMP);
 	CvSeq* contour; 
@@ -242,41 +138,77 @@ CvSeq* FindContours(IplImage* image, CvMemStorage* storage, double precision, do
 
 }
 
-double TriangleArea(CvPoint2D32f* p0, CvPoint2D32f* p1, CvPoint2D32f* p2)
+float TriangleArea(CvPoint2D32f* p0, CvPoint2D32f* p1, CvPoint2D32f* p2)
 {
-	double la = length(p0, p1); 
-	double lb = length(p1, p2); 
-	double lc = length(p2, p0); 
-	double s = (la + lb + lc) / 2.0; 
+	float la = length(p0, p1); 
+	float lb = length(p1, p2); 
+	float lc = length(p2, p0); 
+	float s = (la + lb + lc) / 2.0F; 
 
 	return sqrt(s * (s - la) * (s - lb) * (s - lc)); 
 }
 
-double QuadrangleArea(Quadrangle* q)
+float QuadrangleArea(Quadrangle* q)
 {
 	return TriangleArea(&q->p[0], &q->p[1], &q->p[2]) + TriangleArea(&q->p[0], &q->p[2], &q->p[3]); 
 }
 
-bool IsQuadrangle(CvSeq* contour, double minArea, Quadrangle* q)
+float ZCross(CvPoint p1, CvPoint p2, CvPoint p3)
+{
+	float xa = (float) (p2.x - p1.x); 
+	float ya = (float) (p2.y - p1.y); 
+	float xb = (float) (p3.x - p2.x); 
+	float yb = (float) (p3.y - p2.y); 
+
+	return (xa * yb) - (ya * xb); 
+}
+
+bool IsConvex(CvPoint* points, int count)
+{
+	float first = ZCross(points[0], points[1], points[2]); 
+
+	// If we take the cross product of consecutive sides, they should
+	// all point in the same z direction
+	for (int i = 1; i < count-2; ++i)
+	{
+		float zdir = ZCross(points[i], points[i+1], points[i+2]); 
+
+		if ((first * zdir) < 0)
+		{
+			return false; 
+		}
+	}
+
+	return true; 
+}
+
+bool IsC4S4Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float)
 {
 	if (contour->total != 5)
 	{
 		return false; 
 	}
 
-	CvPoint* p0 = (CvPoint*) cvGetSeqElem(contour, 0);
-	CvPoint* p4 = (CvPoint*) cvGetSeqElem(contour, 4);
+	CvPoint p[5]; 
+	for (int i = 0; i < 5; i++)
+	{
+		p[i] = *((CvPoint*) cvGetSeqElem(contour, i));
+	}
 
 	// Is it closed? 
-	if ((p0->x != p4->x) || (p0->y != p4->y))
+	if ((p[0].x != p[4].x) || (p[0].y != p[4].y))
 	{
 		return false;
 	}
 
+	if (!IsConvex(p, 5))
+	{
+		return false; 
+	}
+
 	for (int i = 0; i < 4; i++)
 	{
-		CvPoint* p = (CvPoint*) cvGetSeqElem(contour, i); 
-		q->p[i] = cvPoint2D32f(p->x, p->y); 
+		q->p[i] = cvPoint2D32f(p[i].x, p[i].y); 
 	}
 
 	// Is it big enough? 
@@ -288,7 +220,180 @@ bool IsQuadrangle(CvSeq* contour, double minArea, Quadrangle* q)
 	return true; 
 }
 
-CvSeq* FindQuadrangles(CvSeq* contours, CvMemStorage* storage, double minArea)
+bool SharpTest(CvPoint* p, int count, float min, float max)
+{
+	for (int i = 0; i < count - 2; i++)
+	{
+		LineSegment s1; 
+		s1.p1 = p[i]; 
+		s1.p2 = p[i+1]; 
+		LineSegment s2; 
+		s2.p1 = p[i+1]; 
+		s2.p2 = p[i+2]; 
+
+		float dn = fabs(DotNormal(&s1, &s2));
+
+		if ((dn < min) || (dn > max))
+		{
+			return false; 
+		}
+	}
+
+	return true; 
+}
+
+
+bool IsC3Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float)
+{
+	if (contour->total < 5)
+	{
+		return false; 
+	}
+
+	float maxArea = 0; 
+	for (int start = 0; start < (contour->total - 5); start++)
+	{
+		Quadrangle candidate; 
+
+		CvPoint points[5]; 
+		for (int i = start; i < start + 5; i++)
+		{
+			points [i - start] = *((CvPoint*) cvGetSeqElem(contour, i)); 
+		}
+
+		// Are the corners sharp enough, but not too sharp?
+		if (!SharpTest(points, 5, 0, 0.7f))
+		{
+			continue; 
+		}
+
+		// Find the implied corner
+		LineSegment s1; 
+		s1.p1 = points[1]; 
+		s1.p2 = points[0]; 
+
+		LineSegment s2; 
+		s2.p1 = points[3]; 
+		s2.p2 = points[4]; 
+
+		CvPoint2D32f intersection; 
+		float u1; 
+		float u2; 
+		if (!Intersection(&s1, &s2, &intersection, &u1, &u2))
+		{
+			continue; 
+		}
+
+		// If the intersection isn't off the end of both segments, then it doesn't fit the profile. 
+		// Allow a little fudging in case something merges with one of the sides to create a 
+		// longer-than-expected side. 
+		if ((u1 < 0.9) || (u2 < 0.9))
+		{
+			continue; 
+		}
+		
+		candidate.p[0] = cvPoint2D32f(points[1].x, points[1].y); 
+		candidate.p[1] = cvPoint2D32f(points[2].x, points[2].y); 
+		candidate.p[2] = cvPoint2D32f(points[3].x, points[3].y); 
+		candidate.p[3] = intersection; 
+
+		// Store the area and keep looking in case there's more than one candidate on this contour
+		float area = QuadrangleArea(&candidate); 
+
+		if (area > maxArea)
+		{
+			*q = candidate; 
+			maxArea = area; 
+		}
+	}
+
+	// Is it big enough? 
+	if (maxArea < minArea)
+	{
+		return false; 
+	}
+
+	return true; 
+}
+bool IsC4S3Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float alignmentThreshold)
+{
+	if (contour->total < 6)
+	{
+		return false; 
+	}
+
+	float maxArea = 0; 
+	for (int start = 0; start < (contour->total - 6); ++start)
+	{
+		Quadrangle candidate; 
+
+		CvPoint points[6]; 
+		for (int i = start; i < start + 6; i++)
+		{
+			points[i - start] = *((CvPoint*) cvGetSeqElem(contour, i)); 
+		}
+
+		// Is it convex? 
+		if (!IsConvex(points, 6))
+		{
+			continue; 
+		}
+
+		// Do the ends point at each other? 
+
+#if 0
+		// Could check either by seeing if extending the interrupted lines comes near the corner
+		LineSegment s1; 
+		s1.p1 = points[1]; 
+		s1.p2 = points[0]; 
+
+		float d1 = PointToLineDistance(&points[4], &s1); 
+
+		LineSegment s2; 
+		s2.p1 = points[4];
+		s2.p2 = points[5]; 
+
+		float d2 = PointToLineDistance(&points[1], &s2); 
+#else
+		// Or by seeing if the line that joins the corners comes close to the pionts that form the gap
+		LineSegment s; 
+		s.p1 = points[1]; 
+		s.p2 = points[4]; 
+
+		float d1 = PointToLineDistance(&points[0], &s);
+		float d2 = PointToLineDistance(&points[5], &s); 
+#endif
+
+		if ((d1 > alignmentThreshold) || (d2 > alignmentThreshold))
+		{
+			continue; 
+		}
+
+		candidate.p[0] = cvPoint2D32f(points[1].x, points[1].y); 
+		candidate.p[1] = cvPoint2D32f(points[2].x, points[2].y); 
+		candidate.p[2] = cvPoint2D32f(points[3].x, points[3].y); 
+		candidate.p[3] = cvPoint2D32f(points[4].x, points[4].y); 
+
+		// Store the area and keep looking in case there's more than one candidate on this contour
+		float area = QuadrangleArea(&candidate); 
+
+		if (area > maxArea)
+		{
+			*q = candidate; 
+			maxArea = area; 
+		}
+	}
+
+	// Is it big enough? 
+	if (maxArea < minArea)
+	{
+		return false; 
+	}
+
+	return true; 
+}
+
+CvSeq* FindQuadrangles(CvSeq* contours, CvMemStorage* storage, bool(*criteria)(CvSeq*, Quadrangle*, float, float), float param1, float param2)
 {
 	CvSeq* quadrangles = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
 
@@ -297,7 +402,7 @@ CvSeq* FindQuadrangles(CvSeq* contours, CvMemStorage* storage, double minArea)
 		CvSeq* contour = *((CvSeq**) cvGetSeqElem(contours, i)); 
 
 		Quadrangle q; 
-		if (IsQuadrangle(contour, minArea, &q))
+		if ((*criteria)(contour, &q, param1, param2))
 		{
 			cvSeqPush(quadrangles, &q); 
 		}
@@ -305,104 +410,6 @@ CvSeq* FindQuadrangles(CvSeq* contours, CvMemStorage* storage, double minArea)
 
 	return quadrangles; 
 }
-CvSeq* FindCompleteQuadrangles(IplImage* image, CvMemStorage* storage, double precision, double minLength, double minArea)
-{
-	CvContourScanner scanner = cvStartFindContours(image, storage, sizeof(CvContour), CV_RETR_CCOMP);
-	CvSeq* contour; 
-
-	CvSeq* quadrangles = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
-
-	int points = -1; 
-	while ((contour = cvFindNextContour(scanner)) != NULL)
-	{
-		points = contour->total;
-		//cvDrawContours(g_contours, contour, colors[0], colors[1], 0); 
-
-		CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, precision); 
-
-		//for (int j = 0; j < contour->total; ++j)
-		//{
-		//	CvPoint* vertex = (CvPoint*) cvGetSeqElem(contour, j); 
-		//	cvCircle(g_contours, *vertex, 2, colors[3]); 
-		//}
-
-		if (poly->total == 4)
-		{
-			//if (cvCheckContourConvexity(contour))
-			//{
-				bool longEnough = true; 
-				for (int j = 0; j < 4; ++j)
-				{
-					LineSegment s;
-					s.p1 = *((CvPoint*) cvGetSeqElem(poly, j)); 
-					s.p2 = *((CvPoint*) cvGetSeqElem(poly, (j+1)%4)); 
-					if (length(&s) < minLength)
-					{
-						longEnough = false;
-						break; 
-					}
-				}
-
-				if (longEnough)
-				{
-					if (fabs(cvContourArea(contour)) > minArea)
-					{
-						Quadrangle q; 
-						for (int i = 0; i < 4; i++)
-						{
-							CvPoint p = *((CvPoint*) cvGetSeqElem(poly, i)); 
-							q.p[i].x = (float) p.x; 
-							q.p[i].y = (float) p.y; 
-						}
-						cvSeqPush(quadrangles, &q); 
-					}
-				}
-			//}
-		}
-		
-	}
-	cvEndFindContours(&scanner); 
-
-	return quadrangles; 
-}
-
-CvSeq* FindLines(IplImage* image, CvMemStorage* storage, double precision, double minLength)
-{
-	CvContourScanner scanner = cvStartFindContours(image, storage, sizeof(CvContour), CV_RETR_CCOMP);
-	CvSeq* contour; 
-
-	CvSeq* lines = cvCreateSeq(0, sizeof(CvSeq), sizeof(LineSegment), storage); 
-
-	int points = -1; 
-	while ((contour = cvFindNextContour(scanner)) != NULL)
-	{
-		points = contour->total;
-		//cvDrawContours(g_contours, contour, colors[0], colors[1], 0); 
-
-		CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), g_storage, CV_POLY_APPROX_DP, precision); 
-
-		//for (int j = 0; j < contour->total; ++j)
-		//{
-		//	CvPoint* vertex = (CvPoint*) cvGetSeqElem(contour, j); 
-		//	cvCircle(g_contours, *vertex, 2, colors[3]); 
-		//}
-
-		for (int j = 0; j < (poly->total)-1; ++j)
-		{
-			LineSegment s;
-			s.p1 = *((CvPoint*) cvGetSeqElem(poly, j)); 
-			s.p2 = *((CvPoint*) cvGetSeqElem(poly, j+1)); 
-			if (length(&s) > minLength)
-			{
-				cvSeqPush(lines, &s); 
-			}
-		}
-	}
-	cvEndFindContours(&scanner); 
-
-	return lines; 
-}
-
 CvMat* QuadrangleToContour(Quadrangle* quadrangle)
 {
 	CvMat* contour = cvCreateMat(4, 1, CV_32FC2); 
@@ -441,10 +448,10 @@ bool IsUpdateOf(Quadrangle* q1, Quadrangle* q2, int threshold)
 	// Returns true if every corner of q1 is within threshold pixels of some corner in q2
 	for (int i = 0; i < 4; i++)
 	{
-		double minLength = 1E20; 
+		float minLength = 1E20F; 
 		for (int j = 0; j < 4; j++)
 		{
-			double l2 = length2(&q1->p[i], &q2->p[j]); 
+			float l2 = length2(&q1->p[i], &q2->p[j]); 
 			if (l2 < minLength)
 			{
 				minLength = l2; 
@@ -474,52 +481,7 @@ int UpdateOf(Quadrangle* q, CvSeq* borders, int threshold)
 	return -1; 
 }
 
-CvSeq* FilterQuadrangles(CvSeq* quadrangles, CvMemStorage* storage)
-{
-	CvSeq* filtered = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
 
-	for (int i = 0; i < quadrangles->total; i++)
-	{
-		Quadrangle* candidate = (Quadrangle*) cvGetSeqElem(quadrangles, i); 
-
-		bool contained = false; 
-		for (int j = 0; j < quadrangles->total; j++)
-		{
-			if (i != j)
-			{
-				Quadrangle* outer = (Quadrangle*) cvGetSeqElem(quadrangles, j); 
-
-				if (Surrounds(outer, candidate))
-				{
-					contained = true; 
-					break; 
-				}
-			}
-		}
-
-		if (!contained)
-		{
-			cvSeqPush(filtered, candidate); 
-		}
-	}
-
-	return filtered; 
-}
-
-CvSeq* RefineQuadrangles(CvSeq* quadrangles, CvArr* image, CvMemStorage* storage)
-{
-	CvSeq* refined = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
-
-	for (int i = 0; i < quadrangles->total; i++)
-	{
-		Quadrangle q = *((Quadrangle*) cvGetSeqElem(quadrangles, i)); 
-		cvFindCornerSubPix(image, (CvPoint2D32f*) &q, 4, cvSize(5, 5), cvSize(-1, -1), cvTermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 20, 0.03)); 
-
-		cvSeqPush(refined, &q); 
-	}
-
-	return refined; 
-}
 void update_contours(int)
 {
 	//cvCvtColor(g_thresholded, g_contours, CV_GRAY2BGR); 
@@ -605,8 +567,9 @@ void TrackQuadrangles(IplImage* source, CvSeq* borders, CvSeq** pContours = NULL
 		pContours = &contours; 
 	}
 
-	*pContours = FindContours(g_contourSource, g_storage, g_contourPolyPrecision / 10.0, g_segmentThreshold); 
-	CvSeq* quadrangles = FindQuadrangles(*pContours, g_storage, g_minArea / 100.0 * (g_contourSource->width * g_contourSource->height)); 
+	*pContours = FindContours(g_contourSource, g_storage, (float) g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold); 
+	float minArea = g_minArea / 100.0F * (g_contourSource->width * g_contourSource->height); 
+	CvSeq* quadrangles = FindQuadrangles(*pContours, g_storage, &IsC4S4Quadrangle, minArea, 0); 
 
 	CvSeq* rejects = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), g_storage); 
 
@@ -735,17 +698,18 @@ void test()
 
 	//DrawContours(g_contours, contours, red); 
 
-	//CvMat* c = Square(); 
-	//CvMat* c = GapOneSide(); 
-	CvMat* c = MissingCorner(); 
-	CvMat* p = cvCreateMat(2, c->cols, CV_32FC1); 
+	CvMat* square = Square(); 
+	CvMat* gapOneSide = GapOneSide(); 
+	CvMat* missingCorner = MissingCorner(); 
 
 	int t = 0; 
-	double w = 4.0; 
-	double vx = 0.10; 
-	double vy = 0.01; 
+	float w = 4.0F; 
+	float vx = 0.10F; 
+	float vy = 0.01F; 
 	bool drawSegments = false; 
 	bool paused = false; 
+	int shape = 0; 
+	int thickness = 10; 
 	for (;;)
 	{
 		if (!paused)
@@ -760,27 +724,27 @@ void test()
 		}
 		else if (key == 0x2B) // +
 		{
-			w += 0.1; 
+			w += 0.1F; 
 		}
 		else if (key == 0x2D) // -
 		{
-			w -= 0.1; 
+			w -= 0.1F; 
 		}
 		else if (key == 0x250000) // left
 		{
-			vx -= 0.01; 
+			vx -= 0.01F; 
 		}
 		else if (key == 0x260000) // up
 		{
-			vy -= 0.01; 
+			vy -= 0.01F; 
 		}
 		else if (key == 0x270000) // right
 		{
-			vx += 0.01; 
+			vx += 0.01F; 
 		}
 		else if (key == 0x280000) // down
 		{
-			vy += 0.01; 
+			vy += 0.01F; 
 		}
 		else if (key == 'c')
 		{
@@ -794,40 +758,101 @@ void test()
 		{
 			paused = !paused; 
 		}
+		else if (key == 's')
+		{
+			shape = (shape + 1) % 4; 
+		}
+		else if (key == 't')
+		{
+			thickness++;
+		}
+		else if (key == 'T')
+		{
+			thickness--; 
+			thickness = max(thickness, 0); 
+		}
+		else if (key == 'f')
+		{
+			++t;
+		}
+		else if (key == 'b')
+		{
+			--t; 
+		}
 		else if (key != -1)
 		{
 			printf("Keypress: 0x%X\n", key); 
 		}
 
-		cvSet(source, CV_RGB(255, 255, 255)); 
-
-		CvMat* rot = cvCreateMat(2, 3, CV_32FC1);
-		cv2DRotationMatrix(cvPoint2D32f(0, 0), t*w, 100, rot); 
-
-		cvMatMul(rot, c, p); 
-
-		for (int i = 1; i < c->cols; i++)
+		if (shape == 0)
 		{
-			int j = i-1; 
-			CvPoint center = cvPoint((int) (300.0 + 100.0 * sin(t * vx)), (int) (300.0 + 100.0 * cos(t * vy))); 
-			CvPoint a = cvPoint((int) (cvGetReal2D(p, 0, i) + center.x), (int) (cvGetReal2D(p, 1, i) + center.y)); 
-			CvPoint b = cvPoint((int) (cvGetReal2D(p, 0, j) + center.x), (int) (cvGetReal2D(p, 1, j) + center.y)); 
-			cvLine(source, a, b, CV_RGB(0, 0, 0), 10); 
+			if (!paused)
+			{
+				update(); 
+				cvCopyImage(g_raw, source); 
+			}
 		}
+		else
+		{
+			CvMat* c; 
+			if (shape == 1)
+			{
+				c = square; 
+			}
+			else if (shape == 2)
+			{
+				c = gapOneSide; 
+			}
+			else if (shape == 3)
+			{
+				c = missingCorner; 
+			}
+			else
+			{
+				throw "unknown shape"; 
+			}
 
+			CvMat* p = cvCreateMat(2, c->cols, CV_32FC1); 
+
+			cvSet(source, CV_RGB(255, 255, 255)); 
+
+			CvMat* rot = cvCreateMat(2, 3, CV_32FC1);
+			cv2DRotationMatrix(cvPoint2D32f(0, 0), t*w, 100, rot); 
+
+			cvMatMul(rot, c, p); 
+
+			for (int i = 1; i < c->cols; i++)
+			{
+				int j = i-1; 
+				CvPoint center = cvPoint((int) (300.0 + 100.0 * sin(t * vx)), (int) (300.0 + 100.0 * cos(t * vy))); 
+				CvPoint a = cvPoint((int) (cvGetReal2D(p, 0, i) + center.x), (int) (cvGetReal2D(p, 1, i) + center.y)); 
+				CvPoint b = cvPoint((int) (cvGetReal2D(p, 0, j) + center.x), (int) (cvGetReal2D(p, 1, j) + center.y)); 
+				cvLine(source, a, b, CV_RGB(0, 0, 0), thickness); 
+			}
+		}
 		cvShowImage("test", source); 
 
-		CvSeq* contours; 
-		TrackQuadrangles(source, borders, &contours); 
+		cvCvtColor(source, g_thresholded, CV_RGB2GRAY); 
+		cvSmooth(g_thresholded, g_thresholded, 2, 5); 
+		cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
+		cvShowImage("thresholded", g_thresholded); 
 
+		float minArea = g_minArea / 100.0F * (source->width * source->height);
+		CvSeq* contours = FindContours(g_thresholded, g_storage, g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold); 
+		CvSeq* quadrangles = FindQuadrangles(contours, g_storage, &IsC4S4Quadrangle, minArea, 0);
+		CvSeq* gapOneSiders = FindQuadrangles(contours, g_storage, &IsC4S3Quadrangle, minArea, (float) g_alignmentThreshold); 
+		CvSeq* missingCorner = FindQuadrangles(contours, g_storage, &IsC3Quadrangle, minArea, 0); 
+		//TrackQuadrangles(source, borders, &contours); 
 
 		cvCopy(source, g_contours); 
 		cvScale(g_contours, g_contours, 0.25); 
-		DrawQuadrangles(g_contours, borders, green); 
 		if (drawSegments)
 		{
 			DrawContours(g_contours, contours, red); 
 		}
+		DrawQuadrangles(g_contours, quadrangles, green); 
+		DrawQuadrangles(g_contours, gapOneSiders, blue); 
+		DrawQuadrangles(g_contours, missingCorner, yellow); 
 		cvShowImage("contours", g_contours); 
 	}
 
@@ -873,6 +898,7 @@ int _tmain(int, _TCHAR*)
 	//cvCreateTrackbar("angle", "contours", &g_maxAngle, 100, update_contours); 
 	cvCreateTrackbar("area", "contours", &g_minArea, 100, NULL); 
 	cvCreateTrackbar("move thresh", "contours", &g_trackingThreshold, 100, NULL); 
+	cvCreateTrackbar("align thresh", "contours", &g_alignmentThreshold, 300, NULL); 
 
 	//update(); 
 
@@ -893,7 +919,7 @@ int _tmain(int, _TCHAR*)
 	printf("\n"); 
 	printf("Escape (or q) to exit\n"); 
 
-	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), g_storage); 
+	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), g_storage); 
 
 	for (;;)
 	{
@@ -916,9 +942,9 @@ int _tmain(int, _TCHAR*)
 		}
 		else if (key == 'c')
 		{
-			g_camera = g_camera ? 0 : 1; 
-			cvReleaseCapture(&g_capture); 
-			g_capture = cvCreateCameraCapture(g_camera); 
+			//g_camera = g_camera ? 0 : 1; 
+			//cvReleaseCapture(&g_capture); 
+			//g_capture = cvCreateCameraCapture(g_camera); 
 		}
 		else if (key == 8)
 		{
