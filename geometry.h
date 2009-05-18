@@ -4,9 +4,14 @@ typedef struct LineSegment
 	CvPoint p2; 
 } LineSegment; 
 
+typedef struct Corner
+{
+	CvPoint2D32f p; 
+	bool implied; 
+} Corner; 
 typedef struct Quadrangle
 {
-	CvPoint2D32f p[4]; 
+	Corner c[4]; 
 } Quadrangle; 
 
 float min4(float a, float b, float c, float d)

@@ -21,7 +21,7 @@ int g_maxLineGap = 75; // Pixels
 int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any angle
 int g_camera = 0; 
 int g_minArea = 3; // Percent of total area
-int g_trackingThreshold = 20; // Pixels - max distance a corner can move and be considered the same
+int g_trackingThreshold = 60; // Pixels - max distance a corner can move and be considered the same
 int g_alignmentThreshold = 20; // Pixels - max distance a C4S3 quad can misalign sides and corners
 
 CvCapture* g_capture; 
@@ -46,6 +46,7 @@ typedef struct Border
 {
 	Quadrangle quadrangle; 
 	int age; 
+	bool matched; 
 } Border; 
 
 
@@ -54,18 +55,36 @@ CvPoint Point(CvPoint2D32f p)
 	return cvPoint((int) (p.x + 0.5), (int) (p.y + 0.5)); 
 }
 
+void DrawQuadrangle(IplImage* image, Quadrangle* q, CvScalar color, int thickness = 1)
+{
+	for (int i = 0; i < 4; ++i)
+	{
+		cvLine(image, Point(q->c[i].p), Point(q->c[(i+1)%4].p), color, thickness); 
+	}
+}
 void DrawQuadrangles(IplImage* image, CvSeq* quadrangles, CvScalar color, int thickness = 1)
 {
 	for (int i = 0; i < quadrangles->total; i++)
 	{
 		Quadrangle* q = (Quadrangle*) cvGetSeqElem(quadrangles, i); 
-		for (int i = 0; i < 4; ++i)
-		{
-			cvLine(image, Point(q->p[i]), Point(q->p[(i+1)%4]), color, thickness); 
-		}
+		DrawQuadrangle(image, q, color, thickness); 
 	}
 }
+void DrawBorders(IplImage* image, CvSeq* borders, CvScalar color, CvScalar colorStep, int thickness = 1)
+{
+	for (int i = 0; i < borders->total; i++)
+	{
+		Border* b = (Border*) cvGetSeqElem(borders, i); 
 
+		CvScalar c = cvScalar(0); 
+		for (int j = 0; j < 4; ++j)
+		{
+			c.val[j] = color.val[j] - (b->age * colorStep.val[j]);
+		}
+
+		DrawQuadrangle(image, &b->quadrangle, c, thickness); 
+	}
+}
 void DrawLines(IplImage* image, CvSeq* lines, CvScalar color, int thickness = 1)
 {
 	for (int i = 0; i < lines->total; i++)
@@ -150,7 +169,7 @@ float TriangleArea(CvPoint2D32f* p0, CvPoint2D32f* p1, CvPoint2D32f* p2)
 
 float QuadrangleArea(Quadrangle* q)
 {
-	return TriangleArea(&q->p[0], &q->p[1], &q->p[2]) + TriangleArea(&q->p[0], &q->p[2], &q->p[3]); 
+	return TriangleArea(&q->c[0].p, &q->c[1].p, &q->c[2].p) + TriangleArea(&q->c[0].p, &q->c[2].p, &q->c[3].p); 
 }
 
 float ZCross(CvPoint p1, CvPoint p2, CvPoint p3)
@@ -208,7 +227,8 @@ bool IsC4S4Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float)
 
 	for (int i = 0; i < 4; i++)
 	{
-		q->p[i] = cvPoint2D32f(p[i].x, p[i].y); 
+		q->c[i].p = cvPoint2D32f(p[i].x, p[i].y); 
+		q->c[i].implied = false; 
 	}
 
 	// Is it big enough? 
@@ -292,10 +312,14 @@ bool IsC3Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float)
 			continue; 
 		}
 		
-		candidate.p[0] = cvPoint2D32f(points[1].x, points[1].y); 
-		candidate.p[1] = cvPoint2D32f(points[2].x, points[2].y); 
-		candidate.p[2] = cvPoint2D32f(points[3].x, points[3].y); 
-		candidate.p[3] = intersection; 
+		candidate.c[0].p = cvPoint2D32f(points[1].x, points[1].y); 
+		candidate.c[0].implied = false; 
+		candidate.c[1].p = cvPoint2D32f(points[2].x, points[2].y); 
+		candidate.c[1].implied = false; 
+		candidate.c[2].p = cvPoint2D32f(points[3].x, points[3].y); 
+		candidate.c[2].implied = false; 
+		candidate.c[3].p = intersection; 
+		candidate.c[3].implied = true; 
 
 		// Store the area and keep looking in case there's more than one candidate on this contour
 		float area = QuadrangleArea(&candidate); 
@@ -369,10 +393,11 @@ bool IsC4S3Quadrangle(CvSeq* contour, Quadrangle* q, float minArea, float alignm
 			continue; 
 		}
 
-		candidate.p[0] = cvPoint2D32f(points[1].x, points[1].y); 
-		candidate.p[1] = cvPoint2D32f(points[2].x, points[2].y); 
-		candidate.p[2] = cvPoint2D32f(points[3].x, points[3].y); 
-		candidate.p[3] = cvPoint2D32f(points[4].x, points[4].y); 
+		for (int i = 0; i < 4; i++)
+		{
+			candidate.c[i].p = cvPoint2D32f(points[i+1].x, points[i+1].y); 
+			candidate.c[i].implied = false; 
+		}
 
 		// Store the area and keep looking in case there's more than one candidate on this contour
 		float area = QuadrangleArea(&candidate); 
@@ -415,7 +440,7 @@ CvMat* QuadrangleToContour(Quadrangle* quadrangle)
 	CvMat* contour = cvCreateMat(4, 1, CV_32FC2); 
 	for (int i = 0; i < 4; i++)
 	{
-		cvSet1D(contour, i, cvScalar(quadrangle->p[i].x, quadrangle->p[i].y)); 
+		cvSet1D(contour, i, cvScalar(quadrangle->c[i].p.x, quadrangle->c[i].p.y)); 
 	}
 
 	return contour; 
@@ -451,7 +476,7 @@ bool IsUpdateOf(Quadrangle* q1, Quadrangle* q2, int threshold)
 		float minLength = 1E20F; 
 		for (int j = 0; j < 4; j++)
 		{
-			float l2 = length2(&q1->p[i], &q2->p[j]); 
+			float l2 = length2(&q1->c[i].p, &q2->c[j].p); 
 			if (l2 < minLength)
 			{
 				minLength = l2; 
@@ -470,9 +495,9 @@ int UpdateOf(Quadrangle* q, CvSeq* borders, int threshold)
 {
 	for (int i = 0; i < borders->total; i++)
 	{
-		Quadrangle* border = (Quadrangle*) cvGetSeqElem(borders, i); 
+		Border* border = (Border*) cvGetSeqElem(borders, i); 
 
-		if (IsUpdateOf(q, border, threshold))
+		if (IsUpdateOf(q, &border->quadrangle, threshold))
 		{
 			return i; 
 		}
@@ -539,20 +564,40 @@ void update()
 void TestQuadrangleArea()
 {
 	Quadrangle q; 
-	q.p[0].x = 0; 
-	q.p[0].y = 0; 
-	q.p[1].x = 100; 
-	q.p[1].y = 0; 
-	q.p[2].x = 100; 
-	q.p[2].y = 10; 
-	q.p[3].x = 0; 
-	q.p[3].y = 10; 
+	q.c[0].p.x = 0; 
+	q.c[0].p.y = 0; 
+	q.c[1].p.x = 100; 
+	q.c[1].p.y = 0; 
+	q.c[2].p.x = 100; 
+	q.c[2].p.y = 10; 
+	q.c[3].p.x = 0; 
+	q.c[3].p.y = 10; 
 
 	printf("QuadrangleArea (unit square): %lf\n", QuadrangleArea(&q));
 }
 
 
-void TrackQuadrangles(IplImage* source, CvSeq* borders, CvSeq** pContours = NULL)
+int GetClosestBorderCornerIndex(CvPoint2D32f* p, Border* border, CvSeq* borderCorners)
+{
+	float mind = 1.0e20f; 
+	int mini = -1; 
+	for (int i = 0; i < borderCorners->total; i++)
+	{
+		int cornerIndex = *((int*) cvGetSeqElem(borderCorners, i)); 
+		CvPoint2D32f* corner = &border->quadrangle.c[cornerIndex].p; 
+
+		float d = length2(p, corner); 
+
+		if (d < mind)
+		{
+			mind = d; 
+			mini = i; 
+		}
+	}
+
+	return mini; 
+}
+void TrackBorders(IplImage* source, CvSeq* borders, int maxAge, CvSeq** pContours = NULL)
 {
 	cvCvtColor(source, g_thresholded, CV_RGB2GRAY); 
 	cvSmooth(g_thresholded, g_thresholded, 2, 5); 
@@ -570,48 +615,137 @@ void TrackQuadrangles(IplImage* source, CvSeq* borders, CvSeq** pContours = NULL
 	*pContours = FindContours(g_contourSource, g_storage, (float) g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold); 
 	float minArea = g_minArea / 100.0F * (g_contourSource->width * g_contourSource->height); 
 	CvSeq* quadrangles = FindQuadrangles(*pContours, g_storage, &IsC4S4Quadrangle, minArea, 0); 
+	CvSeq* gapOneSiders = FindQuadrangles(*pContours, g_storage, &IsC4S3Quadrangle, minArea, (float) g_alignmentThreshold); 
+	CvSeq* missingCorners = FindQuadrangles(*pContours, g_storage, &IsC3Quadrangle, minArea, 0); 
 
-	CvSeq* rejects = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), g_storage); 
+	CvSeq* sequences[3]; 
+	sequences[0] = quadrangles; 
+	sequences[1] = gapOneSiders; 
+	sequences[2] = missingCorners; 
 
-	for (int i = 0; i < quadrangles->total; i++)
+	for (int a = 0; a < 3; a++)
 	{
-		Quadrangle* outer = (Quadrangle*) cvGetSeqElem(quadrangles, i); 
-
-		for (int j = 0; j < quadrangles->total; j++)
+		for (int b = 0; b < 3; b++)
 		{
-			if (i != j)
+			CvSeq* seqa = sequences[a]; 
+			CvSeq* seqb = sequences[b]; 
+			for (int i = 0; i < seqa->total; i++)
 			{
-				Quadrangle* inner = (Quadrangle*) cvGetSeqElem(quadrangles, j); 
+				Quadrangle* outer = (Quadrangle*) cvGetSeqElem(seqa, i); 
 
-				if (Surrounds(outer, inner))
+				for (int j = 0; j < seqb->total; j++)
 				{
-					cvSeqRemove(quadrangles, j); 
-					cvSeqPush(rejects, inner); 
-					j--; 
+					if ((a != b) || (i != j))
+					{
+						Quadrangle* inner = (Quadrangle*) cvGetSeqElem(seqb, j); 
+
+						if (Surrounds(outer, inner))
+						{
+							cvSeqRemove(seqb, j); 
+							j--; 
+						}
+					}
 				}
 			}
 		}
 	}
 
-	for (int i = 0; i < quadrangles->total; i++)
+	for (int i = 0; i < borders->total; i++)
 	{
-		Quadrangle* quadrangle = (Quadrangle*) cvGetSeqElem(quadrangles, i); 
+		Border* border = (Border*) cvGetSeqElem(borders, i); 
+		border->age++;
+	}
 
-		int update = UpdateOf(quadrangle, borders, g_trackingThreshold); 
+	CvMemStorage* scratchStorage = cvCreateMemStorage(); 
 
-		if (update >= 0)
+    CvSeq* borderCorners = cvCreateSeq(0, sizeof(CvSeq), sizeof(int), scratchStorage); 
+	CvSeq* quadExactCorners = cvCreateSeq(0, sizeof(CvSeq), sizeof(int), scratchStorage); 
+	CvSeq* quadImpliedCorners = cvCreateSeq(0, sizeof(CvSeq), sizeof(int), scratchStorage); 
+
+	for (int a = 0; a < 3; a++)
+	{
+		for (int i = 0; i < sequences[a]->total; i++)
 		{
-			Quadrangle* border = (Quadrangle*) cvGetSeqElem(borders, update);
-			for (int k = 0; k < 4; ++k)
+			Quadrangle* quadrangle = (Quadrangle*) cvGetSeqElem(sequences[a], i); 
+
+			int update = UpdateOf(quadrangle, borders, g_trackingThreshold); 
+
+			if (update >= 0)
 			{
-				border->p[k] = quadrangle->p[k]; 
+				Border* border = (Border*) cvGetSeqElem(borders, update);
+				if (border->age > 0)
+				{
+
+					for (int k = 0; k < 4; ++k)
+					{
+						cvSeqPush(borderCorners, &k); 
+
+						if (quadrangle->c[k].implied)
+						{
+							cvSeqPush(quadImpliedCorners, &k);
+						}
+						else
+						{
+							cvSeqPush(quadExactCorners, &k); 
+						}
+					}
+
+					// Match up the exact corners first
+					while (quadExactCorners->total > 0)
+					{
+						int quadCorner = *((int*) cvGetSeqElem(quadExactCorners, 0)); 
+						int closestCorner = GetClosestBorderCornerIndex(&quadrangle->c[quadCorner].p, border, borderCorners); 
+						int borderCorner = *((int*) cvGetSeqElem(borderCorners, closestCorner)); 
+
+						border->quadrangle.c[borderCorner].p = quadrangle->c[quadCorner].p; 
+
+						cvSeqRemove(borderCorners, closestCorner); 
+						cvSeqRemove(quadExactCorners, 0); 
+					}
+
+					// Next, update the implied corners
+					while (quadImpliedCorners->total > 0)
+					{
+						int quadCorner = *((int*) cvGetSeqElem(quadImpliedCorners, 0)); 
+						int closestCorner = GetClosestBorderCornerIndex(&quadrangle->c[quadCorner].p, border, borderCorners); 
+						int borderCorner = *((int*) cvGetSeqElem(borderCorners, closestCorner)); 
+
+						// For non-exact corners, don't copy exactly. Rather, move it in that direction somewhat
+						CvPoint2D32f p1 = border->quadrangle.c[borderCorner].p; 
+						CvPoint2D32f p2 = quadrangle->c[quadCorner].p; 
+
+						border->quadrangle.c[borderCorner].p = cvPoint2D32f(
+							p1.x + (0.5f * (p2.x - p1.x)), 
+							p1.y + (0.5f * (p2.y - p1.y))); 
+
+						cvSeqRemove(borderCorners, closestCorner); 
+						cvSeqRemove(quadImpliedCorners, 0); 
+					}
+
+					border->age = 0; 
+				}
+			}
+			// We only derive new borders from complete quadrangles
+			else if (a == 0)
+			{
+				Border border; 
+				border.quadrangle = *quadrangle; 
+				border.age = 0; 
+				cvSeqPush(borders, &border); 
 			}
 		}
-		else
+	}
+	for (int i = 0; i < borders->total; i++)
+	{
+		Border* border = (Border*) cvGetSeqElem(borders, i); 
+		if (border->age > maxAge)
 		{
-			cvSeqPush(borders, quadrangle); 
+			cvSeqRemove(borders, i--); 
 		}
 	}
+
+	cvReleaseMemStorage(&scratchStorage); 
+
 }
 
 CvMat* Square()
@@ -690,17 +824,19 @@ void test()
 	TestQuadrangleArea();
 
 	IplImage* source = cvCloneImage(g_raw); 
-
+	IplImage* hls = cvCloneImage(source); 
+	IplImage* l = cvCreateImage(cvSize(hls->width, hls->height), hls->depth, 1); 
+	IplImage* thresholded = cvCloneImage(l); 
 
 	CvMemStorage* storage = cvCreateMemStorage(); 
 
-	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Quadrangle), storage); 
-
-	//DrawContours(g_contours, contours, red); 
+	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), storage); 
 
 	CvMat* square = Square(); 
 	CvMat* gapOneSide = GapOneSide(); 
 	CvMat* missingCorner = MissingCorner(); 
+
+	int maxAge = 10; 
 
 	int t = 0; 
 	float w = 4.0F; 
@@ -832,27 +968,29 @@ void test()
 		}
 		cvShowImage("test", source); 
 
-		cvCvtColor(source, g_thresholded, CV_RGB2GRAY); 
-		cvSmooth(g_thresholded, g_thresholded, 2, 5); 
-		cvAdaptiveThreshold(g_thresholded, g_thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
-		cvShowImage("thresholded", g_thresholded); 
+		cvCvtColor(source, hls, CV_BGR2HLS); 
+//		cvSmooth(hls, hl, 2, 5); 
+		cvSplit(hls, NULL, l, NULL, NULL); 
+		cvAdaptiveThreshold(l, thresholded, 255, 0, CV_THRESH_BINARY_INV, 3, g_threshold); 
+		cvShowImage("thresholded", thresholded); 
 
 		float minArea = g_minArea / 100.0F * (source->width * source->height);
-		CvSeq* contours = FindContours(g_thresholded, g_storage, g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold); 
+		CvSeq* contours; 
+		TrackBorders(source, borders, maxAge, &contours); 
 		CvSeq* quadrangles = FindQuadrangles(contours, g_storage, &IsC4S4Quadrangle, minArea, 0);
 		CvSeq* gapOneSiders = FindQuadrangles(contours, g_storage, &IsC4S3Quadrangle, minArea, (float) g_alignmentThreshold); 
 		CvSeq* missingCorner = FindQuadrangles(contours, g_storage, &IsC3Quadrangle, minArea, 0); 
-		//TrackQuadrangles(source, borders, &contours); 
-
+		
 		cvCopy(source, g_contours); 
 		cvScale(g_contours, g_contours, 0.25); 
 		if (drawSegments)
 		{
 			DrawContours(g_contours, contours, red); 
 		}
-		DrawQuadrangles(g_contours, quadrangles, green); 
-		DrawQuadrangles(g_contours, gapOneSiders, blue); 
-		DrawQuadrangles(g_contours, missingCorner, yellow); 
+		DrawQuadrangles(g_contours, quadrangles, green, 2); 
+		DrawQuadrangles(g_contours, gapOneSiders, blue, 2); 
+		DrawQuadrangles(g_contours, missingCorner, yellow, 2); 
+		DrawBorders(g_contours, borders, pink, CV_RGB(256/(maxAge * 2), 256/(maxAge * 2), 0)); 
 		cvShowImage("contours", g_contours); 
 	}
 
@@ -861,24 +999,166 @@ void test()
 	printf("Exiting test mode.\n"); 
 }
 
+void ThresholdExperiment()
+{
+	update(); 
+
+	IplImage* hue = cvCreateImage(cvSize(g_raw->width, g_raw->height), g_raw->depth, 1); 
+	IplImage* luminance = cvCreateImage(cvSize(g_raw->width, g_raw->height), g_raw->depth, 1); 
+	IplImage* saturation = cvCreateImage(cvSize(g_raw->width, g_raw->height), g_raw->depth, 1); 
+	IplImage* black = cvCreateImage(cvSize(g_raw->width, g_raw->height), g_raw->depth, 1); 
+	IplImage* white = cvCreateImage(cvSize(g_raw->width, g_raw->height), g_raw->depth, 1); 
+	IplImage* hueWindowed = cvCloneImage(hue); 
+	IplImage* luminanceThresholded = cvCloneImage(luminance); 
+	IplImage* saturationThresholded = cvCloneImage(saturation); 
+	IplImage* slThresholded = cvCloneImage(luminance); 
+	IplImage* converted = cvCloneImage(g_raw); 
+	IplImage* blackDilated = cvCloneImage(black); 
+	IplImage* intersection = cvCloneImage(black); 
+	IplImage* intersectionContours = cvCloneImage(g_raw); 
+
+	cvNamedWindow("hue");
+	cvNamedWindow("luminance");
+	cvNamedWindow("saturation");
+	cvNamedWindow("hue windowed");
+	cvNamedWindow("luminance thresholded");
+	cvNamedWindow("saturation thresholded");
+	cvNamedWindow("sl thresholded");
+	cvNamedWindow("black"); 
+	cvNamedWindow("white"); 
+	cvNamedWindow("black dilated"); 
+	cvNamedWindow("intersection"); 
+	cvNamedWindow("intersection contours"); 
+
+	int blackThreshold = 255; 
+	cvCreateTrackbar("level", "black", &blackThreshold, 256, NULL); 
+
+	int whiteThreshold = 200; 
+	cvCreateTrackbar("level", "white", &whiteThreshold, 256, NULL); 
+
+	int luminanceThreshold = 200; 
+	cvCreateTrackbar("level", "luminance thresholded", &luminanceThreshold, 256, NULL); 
+
+	int saturationThreshold = 200; 
+    cvCreateTrackbar("level", "saturation thresholded", &saturationThreshold, 256, NULL); 
+
+	// 150 appears to be the color of the sticky notes I'm testing with
+	int hueCenter = 150; 
+	cvCreateTrackbar("center", "hue windowed", &hueCenter, 255, NULL); 
+
+	int hueWindow = 10; 
+	cvCreateTrackbar("window", "hue windowed", &hueWindow, 128, NULL); 
+
+	int dilations = 1;
+	cvCreateTrackbar("iterations", "black dilated", &dilations, 5, NULL); 
+
+	IplConvKernel* morphKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
+
+	CvMemStorage* storage = cvCreateMemStorage(); 
+
+	for (;;)
+	{
+		update(); 
+
+		int key = cvWaitKey(33); 
+
+		if (key == 'q')
+		{
+			break; 
+		}
+
+		cvCvtColor(g_raw, converted, CV_BGR2HLS); 
+		cvSplit(converted, hue, luminance, saturation, NULL); 
+		cvThreshold(luminance, black, blackThreshold, 127, CV_THRESH_BINARY_INV); 
+		cvThreshold(luminance, white, whiteThreshold, 127, CV_THRESH_BINARY); 
+
+		// TODO: Deal with the fact that hue wraps around
+		for (int y = 0; y < hue->height; ++y)
+		{
+			char* hueRow = hue->imageData + (y * hue->widthStep); 
+			char* hueWindowedRow = hueWindowed->imageData + (y * hueWindowed->widthStep); 
+
+			for (int x = 0; x < hue->width; ++x)
+			{
+				unsigned char* src = (unsigned char*) hueRow + x; 
+				unsigned char* dest = (unsigned char*) hueWindowedRow + x; 
+				
+				int h = *src; 
+
+				if (abs(h - hueCenter) < hueWindow)
+				{
+					*dest = 85; 
+				}
+				else
+				{
+					*dest = 0; 
+				}
+			}
+		}
+
+		cvThreshold(luminance, luminanceThresholded, luminanceThreshold, 85, CV_THRESH_BINARY); 
+		cvThreshold(saturation, saturationThresholded, saturationThreshold, 85, CV_THRESH_BINARY); 
+		cvAdd(luminanceThresholded, saturationThresholded, slThresholded); 
+		cvAdd(slThresholded, hueWindowed, slThresholded); 
+		cvThreshold(slThresholded, slThresholded, 250, 255, CV_THRESH_BINARY); 
+
+		cvDilate(black, blackDilated, morphKernel, dilations); 
+		cvAdd(blackDilated, white, intersection); 
+		cvThreshold(intersection, intersection, 250, 255, CV_THRESH_BINARY); 
+
+		CvSeq* contours = FindContours(intersection, storage, g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold);
+		cvScale(g_raw, intersectionContours, 0.25); 
+		DrawContours(intersectionContours, contours, green); 
+
+		cvShowImage("hue", hue); 
+		cvShowImage("luminance", luminance); 
+		cvShowImage("saturation", saturation); 
+		cvShowImage("black", black); 
+		cvShowImage("white", white);
+		cvShowImage("black dilated", blackDilated); 
+		cvShowImage("intersection", intersection); 
+		cvShowImage("intersection contours", intersectionContours); 
+		cvShowImage("hue windowed", hueWindowed); 
+		cvShowImage("luminance thresholded", luminanceThresholded); 
+		cvShowImage("saturation thresholded", saturationThresholded); 
+		cvShowImage("sl thresholded", slThresholded); 
+	}
+
+	cvDestroyWindow("hue"); 
+	cvDestroyWindow("luminance"); 
+	cvDestroyWindow("saturation"); 
+	cvDestroyWindow("black"); 
+	cvDestroyWindow("white"); 
+	cvDestroyWindow("blackDilated"); 
+	cvDestroyWindow("intersection"); 
+	cvDestroyWindow("intersection contours"); 
+	cvDestroyWindow("hue windowed"); 
+	cvDestroyWindow("luminance thresholded"); 
+	cvDestroyWindow("saturation thresholded"); 
+	cvDestroyWindow("sl thresholded"); 
+	cvReleaseImage(&hue);
+	cvReleaseImage(&luminance);
+	cvReleaseImage(&saturation);
+	cvReleaseImage(&black);
+	cvReleaseImage(&white);
+	cvReleaseImage(&blackDilated);
+	cvReleaseImage(&intersection);
+	cvReleaseImage(&luminanceThresholded); 
+	cvReleaseImage(&saturationThresholded); 
+	cvReleaseImage(&slThresholded); 
+}
+
 int _tmain(int, _TCHAR*)
 {
 	g_capture = cvCreateCameraCapture(g_camera); 
 
 	cvNamedWindow("raw"); 
-	cvNamedWindow("raw1"); 
-	cvNamedWindow("raw2");
-	cvNamedWindow("raw3"); 
 	cvNamedWindow("grabbed"); 
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("contours"); 
 	cvNamedWindow("test"); 
 
 	g_raw = cvQueryFrame(g_capture); 
-	IplImage* rawConvert = cvCloneImage(g_raw); 
-	IplImage* raw1 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	IplImage* raw2 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
-	IplImage* raw3 = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
 	g_grabbed = cvCloneImage(g_raw); 
 	g_test = cvCloneImage(g_raw); 
 	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
@@ -888,6 +1168,8 @@ int _tmain(int, _TCHAR*)
 	g_morphKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
 
 	g_storage = cvCreateMemStorage(); 
+
+	int maxAge = 10; 
 
 	//cvCreateTrackbar("threshold", "thresholded", &g_threshold, 50, update_threshold); 
 	//cvCreateTrackbar("max_depth", "contours", &g_maxDepth, 20, update_contours); 
@@ -899,7 +1181,8 @@ int _tmain(int, _TCHAR*)
 	cvCreateTrackbar("area", "contours", &g_minArea, 100, NULL); 
 	cvCreateTrackbar("move thresh", "contours", &g_trackingThreshold, 100, NULL); 
 	cvCreateTrackbar("align thresh", "contours", &g_alignmentThreshold, 300, NULL); 
-
+	cvCreateTrackbar("max age", "contours", &maxAge, 200, NULL); 
+	
 	//update(); 
 
 	CvScalar colors[6]; 
@@ -928,13 +1211,6 @@ int _tmain(int, _TCHAR*)
 #if !FRAME_AT_A_TIME
 		grab();
 #endif
-
-		cvCvtColor(g_grabbed, rawConvert, CV_BGR2HLS); 
-		cvSplit(rawConvert, raw1, raw2, raw3, NULL); 
-
-		cvShowImage("raw1", raw1); 
-		cvShowImage("raw2", raw2); 
-		cvShowImage("raw3", raw3); 
 
 		if ((key == 27) || (key == 'q'))
 		{
@@ -965,15 +1241,19 @@ int _tmain(int, _TCHAR*)
 		{
 			test(); 
 		}
+		else if (key == 'h')
+		{
+			ThresholdExperiment(); 
+		}
 		else
 		{
-			TrackQuadrangles(g_grabbed, borders); 
+			TrackBorders(g_grabbed, borders, maxAge); 
 			cvCopy(g_grabbed, g_contours); 
 			cvScale(g_contours, g_contours, 0.25); 
 			//DrawContours(g_contours, contours, red); 
 			//DrawQuadrangles(g_contours, rejects, yellow); 
 			//DrawQuadrangles(g_contours, quadrangles, blue); 
-			DrawQuadrangles(g_contours, borders, green); 
+			DrawBorders(g_contours, borders, green, CV_RGB(0, 256/(maxAge * 2), 0)); 
 
 			cvShowImage("contours", g_contours); 
 		}
@@ -995,4 +1275,5 @@ int _tmain(int, _TCHAR*)
 	
 	return 0;
 }
+
 
