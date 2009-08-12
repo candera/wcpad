@@ -19,7 +19,7 @@ int g_segmentThreshold = 10; // Pixels
 int g_collinearityThreshold = 104; // Tenths of pixels
 int g_maxLineGap = 75; // Pixels
 int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any angle
-int g_camera = 0; 
+int g_camera = 1; 
 int g_minArea = 3; // Percent of total area
 int g_trackingThreshold = 60; // Pixels - max distance a corner can move and be considered the same
 int g_alignmentThreshold = 20; // Pixels - max distance a C4S3 quad can misalign sides and corners
@@ -966,64 +966,149 @@ void test(CvCapture* capture)
 	printf("Exiting test mode.\n"); 
 }
 
+void Window(IplImage* src, IplImage* dest, int lowThresh, int highThresh, unsigned char value1, unsigned char value2)
+{
+	for (int y = 0; y < src->height; ++y)
+	{
+		char* srcRow = src->imageData + (y * src->widthStep); 
+		char* destRow = dest->imageData + (y * dest->widthStep); 
+
+		for (int x = 0; x < src->width; ++x)
+		{
+			unsigned char* srcData = (unsigned char*) srcRow + x; 
+			unsigned char* destData = (unsigned char*) destRow + x; 
+
+			int v = *srcData; 
+
+			if (lowThresh < highThresh)
+			{
+				if ((v <= highThresh) && (v >= lowThresh))
+				{
+					*destData = value1; 
+				}
+				else
+				{
+					*destData = value2; 
+				}
+			}
+			else
+			{
+				if ((v <= highThresh) || (v >= lowThresh))
+				{
+					*destData = value1; 
+				}
+				else
+				{
+					*destData = value2; 
+				}
+			}
+		}
+	}
+
+}
+void GreyDistance(IplImage* src, IplImage* grey, IplImage* dest)
+{
+	for (int y = 0; y < src->height; ++y)
+	{
+		char* srcRow = src->imageData + (y * src->widthStep); 
+		char* destRow = dest->imageData + (y * dest->widthStep); 
+		char* greyRow = grey->imageData + (y * grey->widthStep); 
+
+		for (int x = 0; x < src->width; ++x)
+		{
+			unsigned char* srcData = (unsigned char*) srcRow + (x * 3); 
+			unsigned char* destData = (unsigned char*) destRow + x; 
+			unsigned char* greyData = (unsigned char*) greyRow + x; 
+
+			int b = srcData[0]; 
+			int g = srcData[1];
+			int r = srcData[2]; 
+
+			int m = (b + g + r) / 3; 
+
+			*greyData = (unsigned char) m; 
+			*destData = (unsigned char) sqrt((float) ((b - m) * (b - m)) + (float) ((g - m) * (g - m)) + (float) ((r - m) + (r -m))); 
+		}
+	}
+}
 void ThresholdExperiment(CvCapture* capture)
 {
 	IplImage* raw = cvQueryFrame(capture); 
 	cvShowImage("raw", raw); 
 
-	IplImage* hue = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* luminance = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* saturation = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* black = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* white = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* hueWindowed = cvCloneImage(hue); 
-	IplImage* luminanceThresholded = cvCloneImage(luminance); 
-	IplImage* saturationThresholded = cvCloneImage(saturation); 
-	IplImage* slThresholded = cvCloneImage(luminance); 
 	IplImage* converted = cvCloneImage(raw); 
-	IplImage* blackDilated = cvCloneImage(black); 
-	IplImage* intersection = cvCloneImage(black); 
-	IplImage* intersectionContours = cvCloneImage(raw); 
+	IplImage* channel1 = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* channel2 = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* channel3 = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* channel1Thresholded = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* channel2Thresholded = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* channel3Thresholded = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* combined = cvCreateImage(cvGetSize(raw), raw->depth, 1);  
+	IplImage* combinedThresholded = cvCloneImage(combined); 
+	IplImage* contourScratch = cvCloneImage(combinedThresholded); 
+	IplImage* closed = cvCloneImage(combinedThresholded); 
+	IplImage* final = cvCloneImage(raw); 
 
-	cvNamedWindow("hue");
-	cvNamedWindow("luminance");
-	cvNamedWindow("saturation");
-	cvNamedWindow("hue windowed");
-	cvNamedWindow("luminance thresholded");
-	cvNamedWindow("saturation thresholded");
-	cvNamedWindow("sl thresholded");
-	cvNamedWindow("black"); 
-	cvNamedWindow("white"); 
-	cvNamedWindow("black dilated"); 
-	cvNamedWindow("intersection"); 
-	cvNamedWindow("intersection contours"); 
+	cvNamedWindow("channel1");
+	cvNamedWindow("channel2");
+	cvNamedWindow("channel3");
+	cvNamedWindow("channel1 thresholded");
+	cvNamedWindow("channel2 thresholded");
+	cvNamedWindow("channel3 thresholded");
+	cvNamedWindow("combined"); 
+	cvNamedWindow("combined thresholded"); 
+	cvNamedWindow("closed"); 
+	cvNamedWindow("final"); 
 
-	int blackThreshold = 255; 
-	cvCreateTrackbar("level", "black", &blackThreshold, 256, NULL); 
+	int channel1HighThreshold = 255; 
+	int channel1LowThreshold = 0; 
+	cvCreateTrackbar("high", "channel1", &channel1HighThreshold, 255, NULL); 
+	cvCreateTrackbar("low", "channel1", &channel1LowThreshold, 255, NULL); 
 
-	int whiteThreshold = 200; 
-	cvCreateTrackbar("level", "white", &whiteThreshold, 256, NULL); 
+	int channel2HighThreshold = 128; 
+	int channel2LowThreshold = 0; 
+	cvCreateTrackbar("high", "channel2", &channel2HighThreshold, 255, NULL); 
+	cvCreateTrackbar("low", "channel2", &channel2LowThreshold, 255, NULL); 
 
-	int luminanceThreshold = 200; 
-	cvCreateTrackbar("level", "luminance thresholded", &luminanceThreshold, 256, NULL); 
+	int channel3HighThreshold = 128; 
+	int channel3LowThreshold = 0; 
+	cvCreateTrackbar("high", "channel3", &channel3HighThreshold, 255, NULL); 
+	cvCreateTrackbar("low", "channel3", &channel3LowThreshold, 255, NULL); 
 
-	int saturationThreshold = 200; 
-    cvCreateTrackbar("level", "saturation thresholded", &saturationThreshold, 256, NULL); 
+	int closings = 1; 
+	int openings = 1; 
+	cvCreateTrackbar("closings", "closed", &closings, 10, NULL); 
+	cvCreateTrackbar("openings", "closed", &openings, 10, NULL); 
 
-	// 150 appears to be the color of the sticky notes I'm testing with
-	int hueCenter = 150; 
-	cvCreateTrackbar("center", "hue windowed", &hueCenter, 255, NULL); 
-
-	int hueWindow = 10; 
-	cvCreateTrackbar("window", "hue windowed", &hueWindow, 128, NULL); 
-
-	int dilations = 1;
-	cvCreateTrackbar("iterations", "black dilated", &dilations, 5, NULL); 
-
-	IplConvKernel* morphKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
+	int combinedThreshold = 2; 
+	cvCreateTrackbar("threshold", "combined thresholded", &combinedThreshold, 3, NULL); 
 
 	CvMemStorage* storage = cvCreateMemStorage(); 
 
+	unsigned char channel1Value1 = 85; 
+	unsigned char channel1Value2 = 0; 
+	unsigned char channel2Value1 = 85; 
+	unsigned char channel2Value2 = 0; 
+	unsigned char channel3Value1 = 85; 
+	unsigned char channel3Value2 = 0; 
+
+	IplConvKernel* convKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
+
+	bool drawContours = true; 
+	bool smooth = false; 
+	bool drawPolys = false; 
+
+	int colorSpaceIndex = 3; 
+	int colorSpaces[8]; 
+	char* colorSpaceNames[8]; 
+	colorSpaces[0] = CV_BGR2HLS; colorSpaceNames[0] = "HLS";
+	colorSpaces[1] = CV_BGR2HSV; colorSpaceNames[1] = "HSV"; 
+	colorSpaces[2] = CV_BGR2Lab;  colorSpaceNames[2] = "Lab";
+	colorSpaces[3] = CV_BGR2Luv;  colorSpaceNames[3] = "Luv";
+	colorSpaces[4] = CV_BGR2XYZ;  colorSpaceNames[4] = "XYZ";
+	colorSpaces[5] = CV_BGR2YCrCb;  colorSpaceNames[5] = "YCrCb";
+	colorSpaces[6] = CV_BGR2RGB;  colorSpaceNames[6] = "RGB";
+	colorSpaces[7] = CV_BGR2GRAY; colorSpaceNames[7] = "Custom1"; 
 	for (;;)
 	{
 		raw = cvQueryFrame(capture); 
@@ -1035,88 +1120,262 @@ void ThresholdExperiment(CvCapture* capture)
 		{
 			break; 
 		}
-
-		cvCvtColor(raw, converted, CV_BGR2HLS); 
-		cvSplit(converted, hue, luminance, saturation, NULL); 
-		cvThreshold(luminance, black, blackThreshold, 127, CV_THRESH_BINARY_INV); 
-		cvThreshold(luminance, white, whiteThreshold, 127, CV_THRESH_BINARY); 
-
-		// TODO: Deal with the fact that hue wraps around
-		for (int y = 0; y < hue->height; ++y)
+		else if (key == '1')
 		{
-			char* hueRow = hue->imageData + (y * hue->widthStep); 
-			char* hueWindowedRow = hueWindowed->imageData + (y * hueWindowed->widthStep); 
+			unsigned char temp = channel1Value2; 
+			channel1Value2 = channel1Value1; 
+			channel1Value1 = temp; 
+		}
+		else if (key == '2')
+		{
+			unsigned char temp = channel2Value2; 
+			channel2Value2 = channel2Value1; 
+			channel2Value1 = temp; 
+		}
+		else if (key == '3')
+		{
+			unsigned char temp = channel3Value2; 
+			channel3Value2 = channel3Value1; 
+			channel3Value1 = temp; 
+		}
+		else if (key == 'c')
+		{
+			colorSpaceIndex = (colorSpaceIndex + 1) % 8; 
+			printf("Switching to %s color space\n", colorSpaceNames[colorSpaceIndex]); 
+		}
+		else if (key == 'd')
+		{
+			drawContours = !drawContours; 
+		}
+		else if (key == 's')
+		{
+			smooth = !smooth; 
+		}
+		else if (key == 'p')
+		{
+			drawPolys = !drawPolys; 
+		}
 
-			for (int x = 0; x < hue->width; ++x)
+		if (colorSpaceIndex < 7)
+		{
+			cvCvtColor(raw, converted, colorSpaces[colorSpaceIndex]); 
+			cvSplit(converted, channel1, channel2, channel3, NULL); 
+		}
+		else
+		{
+			cvCvtColor(raw, converted, CV_BGR2HLS); 
+			cvSplit(converted, NULL, channel3, NULL, NULL); 
+			//cvSet(channel3, cvScalar(85)); 
+			GreyDistance(raw, channel1, channel2); 
+		}
+
+		if (smooth)
+		{
+			cvSmooth(channel1, channel1, CV_GAUSSIAN, 5);
+			cvSmooth(channel2, channel2, CV_GAUSSIAN, 5);
+			cvSmooth(channel3, channel3, CV_GAUSSIAN, 5);
+		}
+
+		Window(channel1, channel1Thresholded, channel1LowThreshold, channel1HighThreshold, channel1Value1, channel1Value2); 
+		Window(channel2, channel2Thresholded, channel2LowThreshold, channel2HighThreshold, channel2Value1, channel2Value2); 
+		Window(channel3, channel3Thresholded, channel3LowThreshold, channel3HighThreshold, channel3Value1, channel3Value2); 
+
+		cvAdd(channel1Thresholded, channel2Thresholded, combined); 
+		cvAdd(channel3Thresholded, combined, combined); 
+
+		cvThreshold(combined, combinedThresholded, (combinedThreshold * 85) - 1, 255, CV_THRESH_BINARY); 
+		cvMorphologyEx(combinedThresholded, closed, NULL, convKernel, CV_MOP_OPEN, openings); 
+		cvMorphologyEx(closed, closed, NULL, convKernel, CV_MOP_CLOSE, closings); 
+
+		cvCopyImage(closed, contourScratch); 
+
+		CvSeq* contours; 
+		cvFindContours(contourScratch, storage, &contours, sizeof(CvContour), CV_RETR_LIST); 
+		cvScale(raw, final, 0.25); 
+
+		if (drawContours)
+		{
+			cvDrawContours(final, contours, green, blue, 5, 1, 8, cvPoint(closings, closings)); 
+		}
+
+		CvSeq* contour = contours; 
+		while(contour != NULL)
+		{
+			CvMoments moments; 
+			cvContourMoments(contour, &moments); 
+
+			double m00 = cvGetSpatialMoment(&moments, 0, 0); 
+			double m10 = cvGetSpatialMoment(&moments, 1, 0); 
+			double m01 = cvGetSpatialMoment(&moments, 0, 1); 
+
+			double x = m10/m00; 
+			double y = m01/m00; 
+
+			cvCircle(final, cvPoint((int)x + closings, (int)y + closings), 1, cyan, 1, 8);
+
+			if (drawPolys)
 			{
-				unsigned char* src = (unsigned char*) hueRow + x; 
-				unsigned char* dest = (unsigned char*) hueWindowedRow + x; 
-				
-				int h = *src; 
+				CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), storage, CV_POLY_APPROX_DP, 4, 0); 
+				cvDrawContours(final, poly, red, red, 5, 1, 8, cvPoint(closings, closings)); 
+			}
 
-				if (abs(h - hueCenter) < hueWindow)
-				{
-					*dest = 85; 
-				}
-				else
-				{
-					*dest = 0; 
-				}
+			contour = contour->h_next; 
+		}
+
+
+		cvShowImage("channel1", channel1); 
+		cvShowImage("channel2", channel2); 
+		cvShowImage("channel3", channel3); 
+		cvShowImage("channel1 thresholded", channel1Thresholded); 
+		cvShowImage("channel2 thresholded", channel2Thresholded); 
+		cvShowImage("channel3 thresholded", channel3Thresholded); 
+		cvShowImage("combined", combined); 
+		cvShowImage("combined thresholded", combinedThresholded); 
+		cvShowImage("closed", closed); 
+		cvShowImage("final", final); 
+	}
+
+	cvDestroyWindow("channel1");
+	cvDestroyWindow("channel2");
+	cvDestroyWindow("channel3");
+	cvDestroyWindow("channel1 thresholded");
+	cvDestroyWindow("channel2 thresholded");
+	cvDestroyWindow("channel3 thresholded");
+	cvDestroyWindow("combined"); 
+	cvDestroyWindow("combined thresholded"); 
+	cvDestroyWindow("closed"); 
+	cvDestroyWindow("final"); 
+
+	cvReleaseMemStorage(&storage); 
+}
+
+void HistogramExperiment(CvCapture* capture)
+{
+	IplImage* raw = cvQueryFrame(capture); 
+	IplImage* grabbed = cvCloneImage(raw); 
+	IplImage* thresholded = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* hls = cvCloneImage(grabbed); 
+	IplImage* l = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* downsampleScratch = cvCreateImage(cvSize(l->width / 2, l->height / 2), l->depth, 1); 
+	IplImage* trackingSource = cvCloneImage(thresholded); 
+	IplImage* mask = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	
+	CvMemStorage* storage = cvCreateMemStorage(); 
+	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), storage); 
+
+	while (borders->total == 0)
+	{
+		raw = cvQueryFrame(capture); 
+		cvShowImage("raw", raw); 
+		ThresholdOnLuminance(raw, hls, l, downsampleScratch, thresholded); 
+		cvCopy(thresholded, trackingSource); 
+
+		TrackBorders(
+			trackingSource, 
+			storage, 
+			borders, 
+			10, 
+			(float) g_contourPolyPrecision / 10.0F, 
+			(float) g_segmentThreshold, 
+			(float) g_minArea, 
+			(float) g_alignmentThreshold, 
+			g_trackingThreshold); 
+	}
+
+	CvPoint points[4]; 
+	Border* border = (Border*) cvGetSeqElem(borders, 0); 
+	for (int i = 0; i < 4; i++)
+	{
+		points[i] = Point(border->quadrangle.c[i].p); 
+	}
+	cvFillConvexPoly(mask, points, 4, cvScalar(255, 255, 255)); 
+
+	cvNamedWindow("mask"); 
+	cvShowImage("mask", mask); 
+
+	IplImage* h_plane = cvCreateImage( cvGetSize(raw), 8, 1 );
+	IplImage* s_plane = cvCreateImage( cvGetSize(raw), 8, 1 );
+	IplImage* v_plane = cvCreateImage( cvGetSize(raw), 8, 1 );
+	IplImage* planes[] = { h_plane, s_plane };
+	IplImage* hsv = cvCreateImage( cvGetSize(raw), 8, 3 );
+	int h_bins = 30, s_bins = 32;
+	int hist_size[] = {h_bins, s_bins};
+	float h_ranges[] = { 0, 180 }; /* hue varies from 0 (~0°red) to 180 (~360°red again) */
+	float s_ranges[] = { 0, 255 }; /* saturation varies from 0 (black-gray-white) to 255 (pure spectrum color) */
+	float* ranges[] = { h_ranges, s_ranges };
+	int scale = 10;
+	IplImage* hist_img = cvCreateImage( cvSize(h_bins*scale,s_bins*scale), 8, 3 );
+	CvHistogram* hist;
+	float max_value = 0;
+	int h, s;
+
+	cvNamedWindow( "H-S Histogram", 1 );
+
+	for (;;)
+	{
+		int key = cvWaitKey(33); 
+		if (key == 'q')
+		{
+			break; 
+		}
+
+		raw = cvQueryFrame(capture); 
+		cvShowImage("raw", raw); 
+
+		cvCvtColor(raw, hsv, CV_BGR2HSV);
+		cvSplit(hsv, h_plane, s_plane, v_plane, 0);
+		hist = cvCreateHist(2, hist_size, CV_HIST_ARRAY, ranges, 1);
+		cvCalcHist(planes, hist, 0, mask);
+		cvGetMinMaxHistValue(hist, 0, &max_value, 0, 0);
+		cvZero( hist_img );
+
+		for( h = 0; h < h_bins; h++ )
+		{
+			for( s = 0; s < s_bins; s++ )
+			{
+				float bin_val = cvQueryHistValue_2D( hist, h, s );
+				int intensity = cvRound(bin_val*255/max_value);
+				cvRectangle(hist_img, cvPoint( h*scale, s*scale ),
+					cvPoint((h+1)*scale - 1, (s+1)*scale - 1),
+					CV_RGB(intensity,intensity,intensity), 
+					CV_FILLED);
+				cvShowImage( "H-S Histogram", hist_img );
 			}
 		}
 
-		cvThreshold(luminance, luminanceThresholded, luminanceThreshold, 85, CV_THRESH_BINARY); 
-		cvThreshold(saturation, saturationThresholded, saturationThreshold, 85, CV_THRESH_BINARY); 
-		cvAdd(luminanceThresholded, saturationThresholded, slThresholded); 
-		cvAdd(slThresholded, hueWindowed, slThresholded); 
-		cvThreshold(slThresholded, slThresholded, 250, 255, CV_THRESH_BINARY); 
-
-		cvDilate(black, blackDilated, morphKernel, dilations); 
-		cvAdd(blackDilated, white, intersection); 
-		cvThreshold(intersection, intersection, 250, 255, CV_THRESH_BINARY); 
-
-		CvSeq* contours = FindContours(intersection, storage, g_contourPolyPrecision / 10.0F, (float) g_segmentThreshold);
-		cvScale(raw, intersectionContours, 0.25); 
-		DrawContours(intersectionContours, contours, green); 
-
-		cvShowImage("hue", hue); 
-		cvShowImage("luminance", luminance); 
-		cvShowImage("saturation", saturation); 
-		cvShowImage("black", black); 
-		cvShowImage("white", white);
-		cvShowImage("black dilated", blackDilated); 
-		cvShowImage("intersection", intersection); 
-		cvShowImage("intersection contours", intersectionContours); 
-		cvShowImage("hue windowed", hueWindowed); 
-		cvShowImage("luminance thresholded", luminanceThresholded); 
-		cvShowImage("saturation thresholded", saturationThresholded); 
-		cvShowImage("sl thresholded", slThresholded); 
+		cvScale(hist_img, hist_img, 0.5, 127); 
+		cvShowImage("H-S Histogram", hist_img); 
 	}
+//	cvNamedWindow("back projection"); 
+//
+	//int patchSize = 3; 
+	//IplImage* backProjection = cvCreateImage(cvSize(raw->width - patchSize + 1, raw->height - patchSize + 1), IPL_DEPTH_32F, 1); 
+//
+	//for (;;)
+	//{
+	//	int key = cvWaitKey(33); 
 
-	cvDestroyWindow("hue"); 
-	cvDestroyWindow("luminance"); 
-	cvDestroyWindow("saturation"); 
-	cvDestroyWindow("black"); 
-	cvDestroyWindow("white"); 
-	cvDestroyWindow("blackDilated"); 
-	cvDestroyWindow("intersection"); 
-	cvDestroyWindow("intersection contours"); 
-	cvDestroyWindow("hue windowed"); 
-	cvDestroyWindow("luminance thresholded"); 
-	cvDestroyWindow("saturation thresholded"); 
-	cvDestroyWindow("sl thresholded"); 
-	cvReleaseImage(&hue);
-	cvReleaseImage(&luminance);
-	cvReleaseImage(&saturation);
-	cvReleaseImage(&black);
-	cvReleaseImage(&white);
-	cvReleaseImage(&blackDilated);
-	cvReleaseImage(&intersection);
-	cvReleaseImage(&luminanceThresholded); 
-	cvReleaseImage(&saturationThresholded); 
-	cvReleaseImage(&slThresholded); 
+	//	cvCvtColor(raw, hsv, CV_BGR2HSV);
+	//	cvSplit(hsv, h_plane, s_plane, v_plane, 0);
+
+	//	cvCalcBackProjectPatch(planes, backProjection, cvSize(patchSize, patchSize), hist, CV_COMP_INTERSECT, 255); 
+
+	//	if (key == 'q')
+	//	{
+	//		break; 
+	//	}
+
+	//	cvShowImage("raw", raw);
+	//	cvShowImage("back projection", backProjection); 
+
+	//	raw = cvQueryFrame(capture); 
+	//}
+	cvDestroyWindow("Source"); 
+	cvDestroyWindow("H-S Histogram");
+	cvDestroyWindow("mask"); 
+	cvDestroyWindow("back projection"); 
+
 }
-
 int _tmain(int, _TCHAR*)
 {
 	CvCapture* capture = cvCreateCameraCapture(g_camera); 
@@ -1189,9 +1448,9 @@ int _tmain(int, _TCHAR*)
 		}
 		else if (key == 'c')
 		{
-			//g_camera = g_camera ? 0 : 1; 
-			//cvReleaseCapture(&g_capture); 
-			//g_capture = cvCreateCameraCapture(g_camera); 
+			g_camera = g_camera ? 0 : 1; 
+			cvReleaseCapture(&capture); 
+			capture = cvCreateCameraCapture(g_camera); 
 		}
 		else if (key == 8)
 		{
@@ -1215,6 +1474,10 @@ int _tmain(int, _TCHAR*)
 		else if (key == 'h')
 		{
 			ThresholdExperiment(capture); 
+		}
+		else if (key == 'i')
+		{
+			HistogramExperiment(capture); 
 		}
 		else
 		{

@@ -1,21 +1,26 @@
 TODO: 
 
-* Update tracking to use C4S3 and C3 rectangles. Probably need to restructure to track 
-  one border at a time. 
-* See what effect using white/black boundaries has on detection
-* Try using the OpenCV tracking features again
-* How does gathering more noise data affect finger detection? 
-* Would more smoothing help? 
-* What about a L2 metric between color data? 
-* Track border corners 
+* Update software to track single border and fingertip in main loop
+* Repackage app as a DLL that can report results to a C# app
 * Map bordered region to a new 100x100 image 
 * Why is CPU so high? Anything I can do to lower it? 
-* Detect image of hand purely as difference against background
 
 DEFER: 
+* Track border corners 
+* How does gathering more noise data affect finger detection? 
+* Try using the OpenCV tracking features again
+* See what effect using white/black boundaries has on detection
 * Try tracking corner points - what happens when corner is obscured? And then comes back? 
+* Would more smoothing help? 
+* Detect image of hand purely as difference against background
+
+DISCARD: 
+* What about a L2 metric between color data? 
+
 
 DONE: 
+* Update tracking to use C4S3 and C3 rectangles. Probably need to restructure to track 
+  one border at a time. 
 * Add check for convexity of quadrangles: sometimes "boomerangs" get tracked
 * Update tracking to follow quadrangles that have only three corners or sides visible
 * Try to repro crash that happened when I left the app running for a long time
