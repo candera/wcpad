@@ -15,3 +15,5 @@
 // TODO: reference additional headers your program requires here
 #include <cv.h>
 #include <highgui.h>
+
+#define WCPADAPI extern "C" __declspec(dllexport)

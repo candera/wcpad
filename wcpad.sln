@@ -5,12 +5,18 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "wcpad", "wcpad.vcproj", "{1
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug DLL|Win32 = Debug DLL|Win32
 		Debug|Win32 = Debug|Win32
+		Release DLL|Win32 = Release DLL|Win32
 		Release|Win32 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Debug DLL|Win32.ActiveCfg = Debug DLL|Win32
+		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Debug DLL|Win32.Build.0 = Debug DLL|Win32
 		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Debug|Win32.ActiveCfg = Debug|Win32
 		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Debug|Win32.Build.0 = Debug|Win32
+		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Release DLL|Win32.ActiveCfg = Release DLL|Win32
+		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Release DLL|Win32.Build.0 = Release DLL|Win32
 		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Release|Win32.ActiveCfg = Release|Win32
 		{15C61721-1EBD-465D-BCDC-4FEF94B9E029}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection

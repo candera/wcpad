@@ -12,6 +12,8 @@
 //	APPSTATE_TRACKING_BORDER
 //} g_appState = APPSTATE_ACQUIRING_BORDER; 
 
+bool g_initialized = false; 
+
 int g_threshold = 5; 
 int g_maxDepth = 5;
 int g_contourPolyPrecision = 40; // Tenths of pixels
@@ -31,6 +33,13 @@ CvScalar cyan = cvScalar(255, 255, 0);
 CvScalar pink = cvScalar(255, 0, 255);
 CvScalar yellow = cvScalar(0, 255, 255);
 
+
+typedef struct FingertipInfo
+{
+public:
+	float x; 
+	float y; 
+} FingertipInfo; 
 
 typedef struct Border
 {
@@ -760,9 +769,9 @@ CvMat* MissingCorner()
 
 void ThresholdOnLuminance(IplImage* source, IplImage* hls, IplImage* luminance, IplImage*, IplImage* thresholded)
 {
-	cvCvtColor(source, hls, CV_BGR2HLS); 
+	cvCvtColor(source, hls, CV_BGR2Luv); 
 	// cvSmooth(hls, hl, 2, 5); 
-	cvSplit(hls, NULL, luminance, NULL, NULL); 
+	cvSplit(hls, luminance, NULL, NULL, NULL); 
 	//cvPyrDown(luminance, downsampleScratch); 
 	//cvPyrUp(downsampleScratch, luminance); 
 	cvSmooth(luminance, luminance, 2, 5); 
@@ -1376,6 +1385,35 @@ void HistogramExperiment(CvCapture* capture)
 	cvDestroyWindow("back projection"); 
 
 }
+void ThreeChannelWindow(IplImage* src, IplImage* dest, int ch1low, int ch1high, int ch2low, int ch2high, int ch3low, int ch3high)
+{
+	for (int y = 0; y < src->height; ++y)
+	{
+		char* srcRow = src->imageData + (y * src->widthStep); 
+		char* destRow = dest->imageData + (y * dest->widthStep); 
+
+		for (int x = 0; x < src->width; ++x)
+		{
+			unsigned char* srcData = (unsigned char*) srcRow + (x*3); 
+			unsigned char* destData = (unsigned char*) destRow + x; 
+
+			int v1 = *srcData; 
+			int v2 = *(srcData + 1); 
+			int v3 = *(srcData + 2); 
+
+			if ((v1 <= ch1high) && (v1 >= ch1low) &&
+				(v2 <= ch2high) && (v2 >= ch2low) &&
+				(v3 <= ch3high) && (v1 >= ch3low))
+			{
+				*destData = 255; 
+			}
+			else
+			{
+				*destData = 0; 
+			}
+		}
+	}
+}
 int _tmain(int, _TCHAR*)
 {
 	CvCapture* capture = cvCreateCameraCapture(g_camera); 
@@ -1384,18 +1422,22 @@ int _tmain(int, _TCHAR*)
 	cvNamedWindow("grabbed"); 
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("tracking"); 
+	cvNamedWindow("fingertips"); 
 
 	IplImage* raw = cvQueryFrame(capture); 
 	cvShowImage("raw", raw); 
 	IplImage* grabbed = cvCloneImage(raw); 
 	IplImage* thresholded = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* hls = cvCloneImage(grabbed); 
+	IplImage* luv = cvCloneImage(grabbed); 
 	IplImage* l = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
-	IplImage* downsampleScratch = cvCreateImage(cvSize(l->width / 2, l->height / 2), l->depth, 1); 
+	IplImage* fingertips = cvCreateImage(cvGetSize(raw), raw->depth, 1); 
+	IplImage* contourScratch = cvCloneImage(fingertips); 
+	//IplImage* downsampleScratch = cvCreateImage(cvSize(l->width / 2, l->height / 2), l->depth, 1); 
 	IplImage* trackingSource = cvCloneImage(thresholded); 
 	IplImage* trackingImage = cvCloneImage(raw); 
 
 	CvMemStorage* storage = cvCreateMemStorage(); 
+	IplConvKernel* convKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
 
 	int maxAge = 10; 
 
@@ -1481,7 +1523,12 @@ int _tmain(int, _TCHAR*)
 		}
 		else
 		{
-			ThresholdOnLuminance(grabbed, hls, l, downsampleScratch, thresholded); 
+			// ThresholdOnLuminance(grabbed, hls, l, downsampleScratch, thresholded); 
+			cvCvtColor(grabbed, luv, CV_BGR2Luv); 
+			cvSplit(luv, l, NULL, NULL, NULL); 
+			cvSmooth(l, l, 2, 5); 
+			cvAdaptiveThreshold(l, thresholded, 255, 0, CV_THRESH_BINARY_INV); 
+
 			cvShowImage("thresholded", thresholded); 
 
 			cvCopy(thresholded, trackingSource); 
@@ -1502,7 +1549,46 @@ int _tmain(int, _TCHAR*)
 			//DrawQuadrangles(g_contours, quadrangles, blue); 
 			DrawBorders(trackingImage, borders, pink, CV_RGB(256/(maxAge*2), 256/(maxAge * 2), 0)); 
 
+			// Track blue regions and draw them onto the tracking image
+			ThreeChannelWindow(luv, fingertips, 22, 239, 0, 95, 0, 128);
+
+			int closings = 1; 
+			int openings = 1; 
+			cvMorphologyEx(fingertips, fingertips, NULL, convKernel, CV_MOP_OPEN, openings); 
+			cvMorphologyEx(fingertips, fingertips, NULL, convKernel, CV_MOP_CLOSE, closings); 
+
+			CvSeq* contours;
+			cvCopy(fingertips, contourScratch); 
+			cvFindContours(contourScratch, storage, &contours, sizeof(CvContour), CV_RETR_LIST); 
+
+			cvDrawContours(trackingImage, contours, green, blue, 5, 1, 8, cvPoint(closings, closings)); 
+
+			CvSeq* contour = contours; 
+			while(contour != NULL)
+			{
+				CvMoments moments; 
+				cvContourMoments(contour, &moments); 
+
+				double m00 = cvGetSpatialMoment(&moments, 0, 0); 
+				double m10 = cvGetSpatialMoment(&moments, 1, 0); 
+				double m01 = cvGetSpatialMoment(&moments, 0, 1); 
+
+				double x = m10/m00; 
+				double y = m01/m00; 
+
+				cvCircle(trackingImage, cvPoint((int)x + closings, (int)y + closings), 1, cyan, 1, 8);
+
+				//if (drawPolys)
+				//{
+				//	CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), storage, CV_POLY_APPROX_DP, 4, 0); 
+				//	cvDrawContours(final, poly, red, red, 5, 1, 8, cvPoint(closings, closings)); 
+				//}
+
+				contour = contour->h_next; 
+			}
+
 			cvShowImage("tracking", trackingImage); 
+			cvShowImage("fingertips", fingertips); 
 		}
 	}
 
@@ -1524,3 +1610,148 @@ int _tmain(int, _TCHAR*)
 }
 
 
+CvCapture* g_capture; 
+IplImage* g_raw; 
+IplImage* g_grabbed;
+IplImage* g_thresholded;
+IplImage* g_luv;
+IplImage* g_l;
+IplImage* g_fingertips;
+IplImage* g_contourScratch;
+IplImage* g_trackingSource;
+IplImage* g_trackingImage;
+CvMemStorage* g_storage;
+IplConvKernel* g_convKernel;
+CvSeq* g_borders;
+
+WCPADAPI void Initialize()
+{
+	g_initialized = true; 
+
+    g_capture = cvCreateCameraCapture(g_camera); 
+
+	cvNamedWindow("raw"); 
+	cvNamedWindow("grabbed"); 
+	cvNamedWindow("thresholded"); 
+	cvNamedWindow("tracking"); 
+	cvNamedWindow("fingertips"); 
+
+	g_raw = cvQueryFrame(g_capture); 
+	cvShowImage("raw", g_raw); 
+	
+	g_grabbed = cvCloneImage(g_raw); 
+	g_thresholded = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_luv = cvCloneImage(g_grabbed); 
+	g_l = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_fingertips = cvCreateImage(cvGetSize(g_raw), g_raw->depth, 1); 
+	g_contourScratch = cvCloneImage(g_fingertips); 
+	g_trackingSource = cvCloneImage(g_thresholded); 
+	g_trackingImage = cvCloneImage(g_raw); 
+
+	g_storage = cvCreateMemStorage(); 
+	g_convKernel = cvCreateStructuringElementEx(3, 3, 1, 1, CV_SHAPE_RECT); 
+
+	g_borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), g_storage); 
+
+}
+
+WCPADAPI int Update()
+{
+	cvWaitKey(1); // Easiest way to pump messages so the windows will update
+	g_raw = cvQueryFrame(g_capture); 
+	cvShowImage("raw", g_raw); 
+
+	cvCopy(g_raw, g_grabbed); 
+
+	cvCvtColor(g_grabbed, g_luv, CV_BGR2Luv); 
+	cvSplit(g_luv, g_l, NULL, NULL, NULL); 
+	cvSmooth(g_l, g_l, 2, 5); 
+	cvAdaptiveThreshold(g_l, g_thresholded, 255, 0, CV_THRESH_BINARY_INV); 
+
+	cvShowImage("thresholded", g_thresholded); 
+
+	cvCopy(g_thresholded, g_trackingSource); 
+
+	const int maxAge = 10; 
+
+	TrackBorders(
+		g_trackingSource, 
+		g_storage, 
+		g_borders, 
+		maxAge,
+		(float) g_contourPolyPrecision / 10.0F, 
+		(float) g_segmentThreshold, 
+		(float) g_minArea, 
+		(float) g_alignmentThreshold, 
+		g_trackingThreshold); 
+	cvScale(g_grabbed, g_trackingImage, 0.25); 
+	//DrawContours(g_contours, contours, red); 
+	//DrawQuadrangles(g_contours, rejects, yellow); 
+	//DrawQuadrangles(g_contours, quadrangles, blue); 
+	DrawBorders(g_trackingImage, g_borders, pink, CV_RGB(256/(maxAge*2), 256/(maxAge * 2), 0)); 
+
+	// Track blue regions and draw them onto the tracking image
+	ThreeChannelWindow(g_luv, g_fingertips, 22, 239, 0, 95, 0, 128);
+
+	int closings = 1; 
+	int openings = 1; 
+	cvMorphologyEx(g_fingertips, g_fingertips, NULL, g_convKernel, CV_MOP_OPEN, openings); 
+	cvMorphologyEx(g_fingertips, g_fingertips, NULL, g_convKernel, CV_MOP_CLOSE, closings); 
+
+	CvSeq* contours;
+	cvCopy(g_fingertips, g_contourScratch); 
+	cvFindContours(g_contourScratch, g_storage, &contours, sizeof(CvContour), CV_RETR_LIST); 
+
+	cvDrawContours(g_trackingImage, contours, green, blue, 5, 1, 8, cvPoint(closings, closings)); 
+
+	CvSeq* contour = contours; 
+	while(contour != NULL)
+	{
+		CvMoments moments; 
+		cvContourMoments(contour, &moments); 
+
+		double m00 = cvGetSpatialMoment(&moments, 0, 0); 
+		double m10 = cvGetSpatialMoment(&moments, 1, 0); 
+		double m01 = cvGetSpatialMoment(&moments, 0, 1); 
+
+		double x = m10/m00; 
+		double y = m01/m00; 
+
+		cvCircle(g_trackingImage, cvPoint((int)x + closings, (int)y + closings), 1, cyan, 1, 8);
+
+		//if (drawPolys)
+		//{
+		//	CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), storage, CV_POLY_APPROX_DP, 4, 0); 
+		//	cvDrawContours(final, poly, red, red, 5, 1, 8, cvPoint(closings, closings)); 
+		//}
+
+		contour = contour->h_next; 
+	}
+
+	cvShowImage("tracking", g_trackingImage); 
+	cvShowImage("fingertips", g_fingertips); 
+
+	if (g_borders->total > 0)
+	{
+		return 1; 
+	}
+	else
+	{
+		return -1;
+	}
+}
+
+
+WCPADAPI FingertipInfo GetFingertipInfo(int n)
+{
+	FingertipInfo info;
+	info.x = (float) n / 5.0F; 
+	info.y = (float) n / 10.0F; 
+
+	return info; 
+}
+
+WCPADAPI void Cleanup()
+{
+	g_initialized = false; 
+}

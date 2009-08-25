@@ -1,0 +1,48 @@
+﻿<Window x:Class="Wangdera.WcPadEditor.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:wcpaded="clr-namespace:Wangdera.WcPadEditor"
+    Title="WcPad Editor" Height="700" Width="1169">
+    <DockPanel LastChildFill="True">
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Print..." Command="Print" />
+                <!--<MenuItem Header="P_rinter Settings..." Command="wcpaded:AppCommands.SetupPrinter" />-->
+                <Separator />
+                <MenuItem Header="E_xit" Command="wcpaded:AppCommands.Exit"/>
+            </MenuItem>
+        </Menu>
+        <Grid DockPanel.Dock="Bottom" Height="Auto">
+            <TextBox Text="{Binding MousePosition}"/>
+        </Grid>
+        <ScrollViewer HorizontalScrollBarVisibility="Visible" Background="Gray">
+            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Background="White" x:Name="Paper">
+                <Border x:Name="Border" Margin="{Binding BorderMargin}" Width="Auto" BorderThickness="{Binding BorderThickness}" 
+                        BorderBrush="Black" Padding="{Binding BorderPadding}">
+                    <ItemsControl ItemsSource="{Binding}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas>
+                                    <Canvas.Background>
+                                        <ImageBrush Stretch="None" AlignmentX="Left" AlignmentY="Top" ImageSource="datalink-control-panel.jpg" />
+                                    </Canvas.Background>
+                                </Canvas>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style>
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="Red" Width="{Binding Width}" Height="{Binding Height}" BorderThickness="2" Opacity="0.7" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </Grid>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
