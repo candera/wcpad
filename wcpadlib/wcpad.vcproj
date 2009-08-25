@@ -2,7 +2,7 @@
 <VisualStudioProject
 	ProjectType="Visual C++"
 	Version="9.00"
-	Name="wcpad"
+	Name="wcpadlib"
 	ProjectGUID="{15C61721-1EBD-465D-BCDC-4FEF94B9E029}"
 	RootNamespace="wcpad"
 	Keyword="Win32Proj"
