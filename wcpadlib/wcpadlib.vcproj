@@ -356,7 +356,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath=".\wcpad.cpp"
+				RelativePath=".\wcpadlib.cpp"
 				>
 			</File>
 		</Filter>
