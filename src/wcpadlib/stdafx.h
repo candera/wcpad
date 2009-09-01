@@ -16,4 +16,4 @@
 #include <cv.h>
 #include <highgui.h>
 
-#define WCPADAPI extern "C" __declspec(dllexport)
+#define WCPADAPI(type) extern "C" __declspec(dllexport) type __stdcall

@@ -21,7 +21,7 @@ int g_segmentThreshold = 10; // Pixels
 int g_collinearityThreshold = 104; // Tenths of pixels
 int g_maxLineGap = 75; // Pixels
 int g_maxAngle = 55; // Tenths of a degree. Zero = perfect angle match, 1 = any angle
-int g_camera = 1; 
+int g_camera = 0; 
 int g_minArea = 3; // Percent of total area
 int g_trackingThreshold = 60; // Pixels - max distance a corner can move and be considered the same
 int g_alignmentThreshold = 20; // Pixels - max distance a C4S3 quad can misalign sides and corners
@@ -1624,7 +1624,7 @@ CvMemStorage* g_storage;
 IplConvKernel* g_convKernel;
 CvSeq* g_borders;
 
-WCPADAPI void Initialize()
+WCPADAPI(void) Initialize()
 {
 	g_initialized = true; 
 
@@ -1655,7 +1655,7 @@ WCPADAPI void Initialize()
 
 }
 
-WCPADAPI int Update()
+WCPADAPI(int) Update()
 {
 	cvWaitKey(1); // Easiest way to pump messages so the windows will update
 	g_raw = cvQueryFrame(g_capture); 
@@ -1742,7 +1742,7 @@ WCPADAPI int Update()
 }
 
 
-WCPADAPI FingertipInfo GetFingertipInfo(int n)
+WCPADAPI(FingertipInfo) GetFingertipInfo(int n)
 {
 	FingertipInfo info;
 	info.x = (float) n / 5.0F; 
@@ -1751,7 +1751,7 @@ WCPADAPI FingertipInfo GetFingertipInfo(int n)
 	return info; 
 }
 
-WCPADAPI void Cleanup()
+WCPADAPI(void) Cleanup()
 {
 	g_initialized = false; 
 }

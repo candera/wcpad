@@ -1,0 +1,29 @@
+TODO: 
+* Build to x86 and x64 directories - look at what VS does
+* Loading of custom image
+* Pad barcode
+* Printing of border with custom image and barcode
+* Fix problem where mouse up outside of borders does not register with viewmodel
+* Add unit tests
+
+DONE:
+* Add drawing of regions: a mouse moving while down adds a region until mouse up
+
+
+Conversation with Ian: 
+
+* The approach that ScottHanselman is taking is the wrong one. 
+* The View should just be a projection of whatever your model. 
+* Might make sense to have a ViewModel (aka Presenter). 
+* Observable collection with one object per rectangle
+  * ItemsControl
+  * ItemsPanelTemplate (ItemsPanel) with a Canvas
+  * That'll let me position the things in there based on the data
+  * Slightly complicated because there are extra stuff in the visual tree
+  * ItemsControl.ItemContainerStyle lets me define a style that lets me define
+    binding properties on the item itself
+  * DataBinding lab has an example
+  * Define methods for mouse down and up on ViewModel/Presenter, which will
+    then add new rectangles. 
+  * For tracking active rectangles, use the same approach: have the ViewModel 
+    deal with the mouse up/down

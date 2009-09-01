@@ -15,16 +15,16 @@ namespace Wangdera.WcPad.Driver
 
     internal static class WcPadInterop
     {
-        [DllImport("wcpad.dll")]
+        [DllImport("wcpadlib.dll", CallingConvention=CallingConvention.StdCall)]
         internal static extern void Initialize();
 
-        [DllImport("wcpad.dll")]
+        [DllImport("wcpadlib.dll", CallingConvention = CallingConvention.StdCall)]
         internal static extern int Update();
 
-        [DllImport("wcpad.dll")]
+        [DllImport("wcpadlib.dll", CallingConvention = CallingConvention.StdCall)]
         internal static extern FingertipInfo GetFingertipInfo(int n); 
 
-        [DllImport("wcpad.dll")]
+        [DllImport("wcpadlib.dll", CallingConvention=CallingConvention.StdCall)]
         internal static extern void Cleanup(); 
         
     }

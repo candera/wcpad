@@ -165,7 +165,7 @@
 		</Configuration>
 		<Configuration
 			Name="Debug DLL|Win32"
-			OutputDirectory="$(SolutionDir)$(ConfigurationName)"
+			OutputDirectory="..\..\lib\wcpadlib\$(ConfigurationName)"
 			IntermediateDirectory="$(ConfigurationName)"
 			ConfigurationType="2"
 			CharacterSet="1"
@@ -210,6 +210,7 @@
 				Name="VCLinkerTool"
 				AdditionalDependencies="cxcore110d.lib highgui110d.lib cv110d.lib cvaux110d.lib"
 				LinkIncremental="2"
+				AdditionalLibraryDirectories="..\..\lib\opencv\debug"
 				GenerateDebugInformation="true"
 				SubSystem="1"
 				TargetMachine="1"
