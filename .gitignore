@@ -3,5 +3,5 @@ Debug DLL
 Debug
 *.user
 *.suo
-
+*~
 *.ncb

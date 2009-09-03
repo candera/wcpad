@@ -106,6 +106,7 @@
       <DependentUpon>Resources.resx</DependentUpon>
       <DesignTime>True</DesignTime>
     </Compile>
+    <None Include="copy-dependencies.cmd" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -117,28 +118,6 @@
     </Compile>
     <Compile Include="WcPadInterop.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="..\..\lib\opencv\debug\cv110d.dll">
-      <Link>cv110d.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\lib\opencv\debug\cvaux110d.dll">
-      <Link>cvaux110d.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\lib\opencv\debug\cxcore110d.dll">
-      <Link>cxcore110d.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\lib\opencv\debug\highgui110d.dll">
-      <Link>highgui110d.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\lib\wcpadlib\Debug DLL\wcpadlib.dll">
-      <Link>wcpadlib.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
@@ -147,4 +126,7 @@
   <Target Name="AfterBuild">
   </Target>
   -->
+  <PropertyGroup>
+    <PostBuildEvent>cmd.exe /c $(ProjectDir)copy-dependencies.cmd $(ConfigurationName) $(PlatformName) $(TargetDir) $(ProjectDir)</PostBuildEvent>
+  </PropertyGroup>
 </Project>

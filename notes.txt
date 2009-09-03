@@ -1,5 +1,5 @@
 TODO: 
-* Build to x86 and x64 directories - look at what VS does
+* Fix x64 build. Probably need to get an x64 build of openCV
 * Loading of custom image
 * Pad barcode
 * Printing of border with custom image and barcode
@@ -8,6 +8,7 @@ TODO:
 
 DONE:
 * Add drawing of regions: a mouse moving while down adds a region until mouse up
+* Build to x86 and x64 directories - look at what VS does
 
 
 Conversation with Ian: 
