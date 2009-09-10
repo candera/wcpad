@@ -1,4 +1,5 @@
 TODO: 
+* Fix problem with spaces in path in copy-dependencies.cmd
 * Get rudimentary on-screen position stuff working
 * Loading of custom image
 * Pad barcode
