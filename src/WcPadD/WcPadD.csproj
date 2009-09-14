@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>9.0.21022</ProductVersion>
+    <ProductVersion>9.0.30729</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{343E284B-FC8E-4E6A-B699-B011E3B6A9A4}</ProjectGuid>
     <OutputType>WinExe</OutputType>
@@ -128,6 +128,6 @@
   </Target>
   -->
   <PropertyGroup>
-    <PostBuildEvent>cmd.exe /c $(ProjectDir)copy-dependencies.cmd $(ConfigurationName) $(PlatformName) $(TargetDir) $(ProjectDir)</PostBuildEvent>
+    <PostBuildEvent>cmd.exe /c ""$(ProjectDir)copy-dependencies.cmd" "$(ConfigurationName)" "$(PlatformName)" "$(TargetDir)" "$(ProjectDir)""</PostBuildEvent>
   </PropertyGroup>
 </Project>
