@@ -2,6 +2,9 @@
 Microsoft Visual Studio Solution File, Format Version 10.00
 # Visual Studio 2008
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WcPadD", "WcPadD\WcPadD.csproj", "{343E284B-FC8E-4E6A-B699-B011E3B6A9A4}"
+	ProjectSection(ProjectDependencies) = postProject
+		{15C61721-1EBD-465D-BCDC-4FEF94B9E029} = {15C61721-1EBD-465D-BCDC-4FEF94B9E029}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WcPadEditor", "WcPadEditor\WcPadEditor.csproj", "{521ACF5F-1D02-4EF6-846C-904348E58892}"
 EndProject
