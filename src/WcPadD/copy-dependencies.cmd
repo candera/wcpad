@@ -1,5 +1,5 @@
 
-@echo on
+@echo off
 
 REM %1 is quoted configuration name
 REM %2 is quoted platform name

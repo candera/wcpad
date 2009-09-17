@@ -84,5 +84,10 @@ namespace Wangdera.WcPad.Driver
             _thread.Start(); 
         }
 
+        private void bTest_Click(object sender, EventArgs e)
+        {
+            WcPadInterop.Test(); 
+        }
+
     }
 }

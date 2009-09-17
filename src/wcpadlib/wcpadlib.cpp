@@ -1623,6 +1623,7 @@ IplImage* g_trackingImage;
 CvMemStorage* g_storage;
 IplConvKernel* g_convKernel;
 CvSeq* g_borders;
+CvSeq* g_fingertipInfo; 
 
 WCPADAPI(void) Initialize()
 {
@@ -1653,6 +1654,145 @@ WCPADAPI(void) Initialize()
 
 	g_borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), g_storage); 
 
+	g_fingertipInfo = cvCreateSeq(0, sizeof(CvSeq), sizeof(FingertipInfo), g_storage); 
+
+}
+
+bool CalculateFingertipCoordinates(CvSeq* borders, float x, float y, FingertipInfo* info)
+{
+	// The trick here is to find alpha such that m, n, and p are colinear, defining 
+	// m as the point alpha*(c1-c0)+c0 (along the c0, c1 side), and n as the point
+	// alpha*(c2-c3)+c3 (along the c2, c3) side. p is the fingertip point. 
+	// The algorithm here does it by minimizing the area of the triangle made up
+	// of m,n,p, using the formula 2A = |mx*ny+nx*py+px*my-mx*py-nx*my-px*ny|
+
+	if (borders->total == 0)
+	{
+		return false; 
+	}
+
+	// For now we'll only consider the first border
+	// TODO: Add support for multiple maps
+
+	// For now, we just assume the first corner is the upper-left, and the 
+	// third corner is the lower right. We'll have to change this when we 
+	// get map orientation detection working. 
+	Border* border = (Border*) cvGetSeqElem(borders, 0);
+
+	CvPoint2D32f c0; 
+	CvPoint2D32f c1; 
+	CvPoint2D32f c2; 
+	CvPoint2D32f c3; 
+
+	c0 = border->quadrangle.c[0].p;
+	c1 = border->quadrangle.c[1].p;
+	c2 = border->quadrangle.c[2].p;
+	c3 = border->quadrangle.c[3].p;
+
+	CvPoint2D32f p = cvPoint2D32f(x, y);
+
+	float a = (c1.x-c0.x)*(c2.y-c3.y) - (c2.x-c3.x)*(c1.y-c0.y); 
+	float b = c0.x*(c2.y-c3.y)
+			+ c3.y*(c1.x-c0.x)
+			+  p.y*(c2.x-c3.x)
+			+  p.x*(c1.y-c0.y)
+			-  p.y*(c1.x-c0.x)
+			- c0.y*(c2.x-c3.x)
+			- c3.x*(c1.y-c0.y)
+			-  p.x*(c2.y-c3.y); 
+	float c = c0.x*c3.y
+			+ c3.x*p.y
+			+ p.x*c0.y
+			- c0.x*p.y
+			- c3.x*c0.y
+			- p.x*c3.y; 
+
+	float alpha; 
+
+	// If a is zero, there's only one solution
+	if (a == 0)
+	{
+		alpha = -c/b; 
+	}
+	// Otherwise, we solve the quadratic equation to find both
+	// roots and pick the one that lies on [0,1]
+	else
+	{
+		float d = b*b - 4*a*c; 
+
+		if (d < 0)
+		{
+			return false; 
+		}
+
+		float sqrtd = sqrt(d); 
+
+		float alpha1 = (-b + sqrtd) / (2*a); 
+		float alpha2 = (-b - sqrtd) / (2*a); 
+
+
+		if (alpha1 > 0 && alpha1 < 1)
+		{
+			alpha = alpha1; 
+		}
+		else if (alpha2 > 0 && alpha2 < 1)
+		{
+			alpha = alpha2; 
+		}
+		else
+		{
+			return false; 
+		}
+	}
+
+	// Once we have alpha, beta is just the proportion of mn that mp makes up. 
+	float mx = alpha * (c1.x-c0.x) + c0.x; 
+	float my = alpha * (c1.y-c0.y) + c0.y; 
+	float nx = alpha * (c2.x-c3.x) + c3.x;
+	float ny = alpha * (c2.y-c3.y) + c3.y; 
+
+	float ux = p.x - mx; 
+	float uy = p.y - my; 
+	float vx = nx - mx; 
+	float vy = ny - my; 
+
+	float l2u = ux*ux + uy*uy; 
+	float l2v = vx*vx + vy*vy; 
+
+	float beta = sqrt(l2u/l2v); 
+
+	// If it's not inside the quadrangle, then it's not a hit
+	if (beta > 0 && beta < 1)
+	{
+		info->x = alpha; 
+		info->y = beta; 
+
+		return true; 
+	}
+	
+    return false; 
+}
+
+WCPADAPI(void) Test()
+{
+	CvMemStorage* storage = cvCreateMemStorage(); 
+
+	CvSeq* borders = cvCreateSeq(0, sizeof(CvSeq), sizeof(Border), storage); 
+
+	Border border; 
+	border.quadrangle.c[0].p.x = 0; 
+	border.quadrangle.c[0].p.y = 0; 
+	border.quadrangle.c[1].p.x = 2; 
+	border.quadrangle.c[1].p.y = 0; 
+	border.quadrangle.c[2].p.x = 2; 
+	border.quadrangle.c[2].p.y = 2; 
+	border.quadrangle.c[3].p.x = 0; 
+	border.quadrangle.c[3].p.y = 2; 
+
+	cvSeqPush(borders, &border); 
+
+	FingertipInfo info; 
+	CalculateFingertipCoordinates(borders, 1, 1, &info); 
 }
 
 WCPADAPI(int) Update()
@@ -1691,6 +1831,8 @@ WCPADAPI(int) Update()
 	DrawBorders(g_trackingImage, g_borders, pink, CV_RGB(256/(maxAge*2), 256/(maxAge * 2), 0)); 
 
 	// Track blue regions and draw them onto the tracking image
+	cvClearSeq(g_fingertipInfo); 
+
 	ThreeChannelWindow(g_luv, g_fingertips, 22, 239, 0, 95, 0, 128);
 
 	int closings = 1; 
@@ -1719,6 +1861,14 @@ WCPADAPI(int) Update()
 
 		cvCircle(g_trackingImage, cvPoint((int)x + closings, (int)y + closings), 1, cyan, 1, 8);
 
+		if (g_borders->total > 0)
+		{
+			FingertipInfo info; 
+			if (CalculateFingertipCoordinates(g_borders, (float) x, (float) y, &info))
+			{
+				cvSeqPush(g_fingertipInfo, &info); 
+			}
+		}
 		//if (drawPolys)
 		//{
 		//	CvSeq* poly = cvApproxPoly(contour, sizeof(CvContour), storage, CV_POLY_APPROX_DP, 4, 0); 
@@ -1733,7 +1883,7 @@ WCPADAPI(int) Update()
 
 	if (g_borders->total > 0)
 	{
-		return 1; 
+		return g_fingertipInfo->total; 
 	}
 	else
 	{
@@ -1744,11 +1894,8 @@ WCPADAPI(int) Update()
 
 WCPADAPI(FingertipInfo) GetFingertipInfo(int n)
 {
-	FingertipInfo info;
-	info.x = (float) n / 5.0F; 
-	info.y = (float) n / 10.0F; 
-
-	return info; 
+	FingertipInfo* info = (FingertipInfo*) cvGetSeqElem(g_fingertipInfo, n); 
+	return *info; 
 }
 
 WCPADAPI(void) Cleanup()

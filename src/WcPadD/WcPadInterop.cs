@@ -25,7 +25,10 @@ namespace Wangdera.WcPad.Driver
         internal static extern FingertipInfo GetFingertipInfo(int n); 
 
         [DllImport("wcpadlib.dll", CallingConvention=CallingConvention.StdCall)]
-        internal static extern void Cleanup(); 
-        
+        internal static extern void Cleanup();
+
+        [DllImport("wcpadlib.dll", CallingConvention = CallingConvention.StdCall)]
+        internal static extern void Test(); 
+
     }
 }

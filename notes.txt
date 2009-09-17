@@ -2,14 +2,17 @@ TODO:
 * Fix problem with spaces in path in copy-dependencies.cmd
 * Get rudimentary on-screen position stuff working
 * Loading of custom image
-* Pad barcode
 * Printing of border with custom image and barcode
 * Fix problem where mouse up outside of borders does not register with viewmodel
 * Add unit tests
-
+* Add support for map orientation detection
+* Add support for multiple maps
+  * Pad barcode
+  * Calculation of fingertip location per-map
+* Performance measurement
+  
 DEFER:
 * Fix x64 build. Probably need to get an x64 build of openCV
-
 
 DONE:
 * Add drawing of regions: a mouse moving while down adds a region until mouse up
