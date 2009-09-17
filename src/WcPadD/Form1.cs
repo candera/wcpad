@@ -65,7 +65,12 @@ namespace Wangdera.WcPad.Driver
                         }
                         else
                         {
-                            g.Clear(Color.Red);
+                            Color clearTo = Color.Red;
+                            if (n == 0)
+                            {
+                                clearTo = Color.Black; 
+                            }
+                            g.Clear(clearTo);
                         }
                         pictureBox1.Invalidate(); 
                     };
