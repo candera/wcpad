@@ -3,9 +3,29 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:wcpaded="clr-namespace:Wangdera.WcPadEditor"
     Title="WcPad Editor" Height="700" Width="1169">
+
+    <Window.Resources>
+        <Style x:Key="PaperStyle" TargetType="{x:Type Grid}">
+            <Style.Setters>
+                <Setter Property="Background" Value="White" />
+            </Style.Setters>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="{x:Null}">
+                    <Setter Property="Background" Value="Gray" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
     <DockPanel LastChildFill="True">
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
+                <MenuItem Header="_New..." Command="New" />
+                <MenuItem Header="_Open..." Command="Open" />
+                <MenuItem Header="_Save" Command="Save" />
+                <MenuItem Header="Save _As..." Command="SaveAs" />
+                <MenuItem Header="_Close" Command="Close" />
+                <Separator />
                 <MenuItem Header="_Print..." Command="Print" />
                 <!--<MenuItem Header="P_rinter Settings..." Command="wcpaded:AppCommands.SetupPrinter" />-->
                 <Separator />
@@ -16,17 +36,13 @@
             <TextBox Text="{Binding MousePosition}"/>
         </Grid>
         <ScrollViewer HorizontalScrollBarVisibility="Visible" Background="Gray">
-            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Background="White" x:Name="Paper">
+            <Grid Width="{Binding PageWidth}" Height="{Binding PageHeight}" Style="{StaticResource PaperStyle}" x:Name="Paper">
                 <Border x:Name="Border" Margin="{Binding BorderMargin}" Width="Auto" BorderThickness="{Binding BorderThickness}" 
                         BorderBrush="Black" Padding="{Binding BorderPadding}">
                     <ItemsControl ItemsSource="{Binding}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <Canvas>
-                                    <Canvas.Background>
-                                        <ImageBrush Stretch="None" AlignmentX="Left" AlignmentY="Top" ImageSource="datalink-control-panel.jpg" />
-                                    </Canvas.Background>
-                                </Canvas>
+                                <Canvas />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle>

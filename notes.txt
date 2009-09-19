@@ -1,4 +1,15 @@
 TODO: 
+* Move all property setters to styles. 
+  * Can data-bound properties live in styles? 
+
+* Figure out how to get mouse events routed to the controller. They're
+  currently only being sent when the mouse is in the border. Can I
+  bind the Canvas to the collection instead of the Border? Seems like
+  I ought to be able to. 
+
+* Start with blank map: make user select printer and orientation to
+  create new one
+* Be able to save regions to a file. 
 * Display location of fingertip on a custom map
 * Loading of custom image
 * Printing of border with custom image and barcode
@@ -9,11 +20,15 @@ TODO:
   * Pad barcode
   * Calculation of fingertip location per-map
 * Performance measurement
+* Maybe switch the driver app to WPF? This might be helpful: 
+  * http://www.hardcodet.net/projects/wpf-notifyicon
   
 DEFER:
 * Fix x64 build. Probably need to get an x64 build of openCV
 
 DONE:
+* Figure out how to make the canvas grey and noninteractive until a
+  new document has been created. 
 * Get rudimentary on-screen position stuff working
 * Fix problem with spaces in path in copy-dependencies.cmd
 * Add drawing of regions: a mouse moving while down adds a region until mouse up

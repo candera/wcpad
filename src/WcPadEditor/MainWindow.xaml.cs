@@ -24,11 +24,14 @@ namespace Wangdera.WcPadEditor
         {
             InitializeComponent();
 
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.New, FileNew));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Open, FileOpen));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, FileSave));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.SaveAs, FileSaveAs));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Close, FileClose));
             this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Print, Print)); 
             this.CommandBindings.Add(new CommandBinding(AppCommands.Exit, Exit));
 //            this.CommandBindings.Add(new CommandBinding(AppCommands.SetupPrinter, SetupPrinter)); 
-
-            this.DataContext = _model;
 
             Border.MouseDown += new MouseButtonEventHandler(MainWindow_MouseDown);
             Border.MouseMove += new MouseEventHandler(MainWindow_MouseMove);
@@ -82,6 +85,28 @@ namespace Wangdera.WcPadEditor
         void Exit(object sender, ExecutedRoutedEventArgs e)
         {
             Close(); 
+        }
+
+        private void FileNew(object sender, ExecutedRoutedEventArgs e)
+        {
+            this.DataContext = _model;
+        }
+        private void FileOpen(object sender, ExecutedRoutedEventArgs e)
+        {
+            MessageBox.Show("Not yet implemented.");
+        }
+        private void FileSave(object sender, ExecutedRoutedEventArgs e)
+        {
+            MessageBox.Show("Not yet implemented.");
+        }
+        private void FileSaveAs(object sender, ExecutedRoutedEventArgs e)
+        {
+            MessageBox.Show("Not yet implemented.");
+        }
+        private void FileClose(object sender, ExecutedRoutedEventArgs e)
+        {
+            // TODO: Check for save required
+            this.DataContext = null; 
         }
 
         private void Print(object sender, ExecutedRoutedEventArgs e)
