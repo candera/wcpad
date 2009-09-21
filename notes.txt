@@ -1,4 +1,7 @@
 TODO: 
+* Give the Canvas in the ItemsControl a background so it will receive
+  mouse events. Transparent is fine. 
+
 * Move all property setters to styles. 
   * Can data-bound properties live in styles? 
 
