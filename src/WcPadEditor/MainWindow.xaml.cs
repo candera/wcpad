@@ -13,12 +13,20 @@ using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Xps;
 using System.Printing;
+using Microsoft.Win32;
+using System.IO;
 
 namespace Wangdera.WcPadEditor
 {
     public partial class MainWindow : Window
     {
-        private readonly PadRegionsViewModel _model = new PadRegionsViewModel();
+        private PadRegionsViewModel _model;
+        private SaveFileDialog _saveFileDialog = new SaveFileDialog
+            {
+                AddExtension = true,
+                DefaultExt = ".wcpad",
+                Filter = "wcpad files (.wcpad)|*.wcpad|All Files|*.*"
+            };
 
         public MainWindow()
         {
@@ -26,10 +34,10 @@ namespace Wangdera.WcPadEditor
 
             this.CommandBindings.Add(new CommandBinding(ApplicationCommands.New, FileNew));
             this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Open, FileOpen));
-            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, FileSave));
-            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.SaveAs, FileSaveAs));
-            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Close, FileClose));
-            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Print, Print)); 
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, FileSave, CanSaveFile));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.SaveAs, FileSaveAs, CanSaveFile));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Close, FileClose, CanCloseFile));
+            this.CommandBindings.Add(new CommandBinding(ApplicationCommands.Print, Print, CanPrint)); 
             this.CommandBindings.Add(new CommandBinding(AppCommands.Exit, Exit));
 //            this.CommandBindings.Add(new CommandBinding(AppCommands.SetupPrinter, SetupPrinter)); 
 
@@ -67,19 +75,28 @@ namespace Wangdera.WcPadEditor
 
         void MainWindow_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            _model.MouseUp(e); 
+            if (_model != null)
+            {
+                _model.MouseUp(e);
+            }
         }
 
         void MainWindow_MouseMove(object sender, MouseEventArgs e)
         {
-            // TODO: Do something more efficient than FindItemsPanel
-            _model.MouseMove(e.GetPosition(FindItemsPanel<Panel>(sender as Visual))); 
+            if (_model != null)
+            {
+                // TODO: Do something more efficient than FindItemsPanel
+                _model.MouseMove(e.GetPosition(FindItemsPanel<Panel>(sender as Visual)));
+            }
         }
 
         void MainWindow_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            // TODO: Do something more efficient than FindItemsPanel
-            _model.MouseDown(e, e.GetPosition(FindItemsPanel<Panel>(sender as Visual))); 
+            if (_model != null)
+            {
+                // TODO: Do something more efficient than FindItemsPanel
+                _model.MouseDown(e, e.GetPosition(FindItemsPanel<Panel>(sender as Visual)));
+            }
         }
 
         void Exit(object sender, ExecutedRoutedEventArgs e)
@@ -87,8 +104,22 @@ namespace Wangdera.WcPadEditor
             Close(); 
         }
 
+        private void CanSaveFile(object sender, CanExecuteRoutedEventArgs e)
+        {
+            e.CanExecute = this._model != null; 
+        }
+        private void CanPrint(object sender, CanExecuteRoutedEventArgs e)
+        {
+            e.CanExecute = this._model != null; 
+        }
+        private void CanCloseFile(object seender, CanExecuteRoutedEventArgs e)
+        {
+            e.CanExecute = this._model != null; 
+        }
+
         private void FileNew(object sender, ExecutedRoutedEventArgs e)
         {
+            this._model = new PadRegionsViewModel(); 
             this.DataContext = _model;
         }
         private void FileOpen(object sender, ExecutedRoutedEventArgs e)
@@ -97,7 +128,13 @@ namespace Wangdera.WcPadEditor
         }
         private void FileSave(object sender, ExecutedRoutedEventArgs e)
         {
-            MessageBox.Show("Not yet implemented.");
+            if (_saveFileDialog.ShowDialog() == true)
+            {
+                using (Stream stream = File.Open(_saveFileDialog.FileName, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    _model.Save(stream);
+                }
+            }
         }
         private void FileSaveAs(object sender, ExecutedRoutedEventArgs e)
         {
@@ -106,6 +143,7 @@ namespace Wangdera.WcPadEditor
         private void FileClose(object sender, ExecutedRoutedEventArgs e)
         {
             // TODO: Check for save required
+            this._model = null; 
             this.DataContext = null; 
         }
 

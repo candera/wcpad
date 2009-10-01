@@ -6,6 +6,9 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.ComponentModel;
 using System.Windows;
+using System.IO;
+using System.Xml.Linq;
+using System.Xml;
 
 namespace Wangdera.WcPadEditor
 {
@@ -186,11 +189,38 @@ namespace Wangdera.WcPadEditor
                 }
             }
         }
+        internal void Save(Stream stream)
+        {
+            XDocument doc = new XDocument();
+            doc.Add(new XElement("map",
+                new XAttribute("version", "1"),
+                new XElement("border",
+                    new XAttribute("margin", BorderMargin),
+                    new XAttribute("padding", BorderPadding),
+                    new XAttribute("thickness", BorderThickness)),
+                new XElement("page",
+                    new XAttribute("height", PageHeight),
+                    new XAttribute("width", PageWidth)),
+                new XElement("regions",
+                    from region in this
+                    select
+                        new XElement("region",
+                        new XAttribute("x", region.X),
+                        new XAttribute("y", region.Y),
+                        new XAttribute("width", region.Width),
+                        new XAttribute("height", region.Height)))));
+
+            using (XmlWriter writer = XmlWriter.Create(stream, new XmlWriterSettings { IndentChars = "  ", Indent = true }))
+            {
+                doc.Save(writer);
+            }       
+        }
 
         private void OnPropertyChanged(string propertyName)
         {
             base.OnPropertyChanged(new PropertyChangedEventArgs(propertyName));
         }
+
 
     }
 }

@@ -42,7 +42,9 @@
                     <ItemsControl ItemsSource="{Binding}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <Canvas />
+                                <!-- The transparent background is purely so the Canvas can receive mouse events.
+                                     Without it, it never gets a thing. -->
+                                <Canvas Background="Transparent" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle>
