@@ -1,5 +1,9 @@
 TODO: 
-* Be able to load an existing file. 
+* Detect existing file at open/new/close and prompt for save
+
+* Move code for loading file to common DLL. 
+
+* Set up wcpadd to read file and use to draw onscreen tracking 
 
 * Move all property setters to styles. 
   * Can data-bound properties live in styles? 
@@ -23,6 +27,8 @@ DEFER:
 * Fix x64 build. Probably need to get an x64 build of openCV
 
 DONE:
+* Be able to load an existing file. 
+
 * Be able to save regions to a file. 
 
 * Closing and creating a new map preserves the regions from the old

@@ -189,6 +189,37 @@ namespace Wangdera.WcPadEditor
                 }
             }
         }
+        internal static PadRegionsViewModel Load(Stream stream)
+        {
+            using (XmlReader reader = XmlReader.Create(stream))
+            {
+                XDocument doc = XDocument.Load(reader);
+
+                var model = new PadRegionsViewModel(); 
+
+                var border = doc.Root.Element("border");
+                model._borderMargin = int.Parse(border.Attribute("margin").Value);
+                model._borderPadding = int.Parse(border.Attribute("padding").Value);
+                model._borderThickness = int.Parse(border.Attribute("thickness").Value);
+
+                var page = doc.Root.Element("page");
+                model._pageHeight = int.Parse(page.Attribute("height").Value);
+                model._pageWidth = int.Parse(page.Attribute("width").Value);
+
+                var regions = doc.Root.Element("regions"); 
+
+                model.AddRange(regions.Elements("region").Select(r => 
+                    new PadRegion
+                    {
+                        X = int.Parse(r.Attribute("x").Value),
+                        Y = int.Parse(r.Attribute("y").Value),
+                        Width = int.Parse(r.Attribute("width").Value),
+                        Height = int.Parse(r.Attribute("height").Value),
+                    }));
+
+                return model; 
+            }
+        }
         internal void Save(Stream stream)
         {
             XDocument doc = new XDocument();
@@ -220,6 +251,7 @@ namespace Wangdera.WcPadEditor
         {
             base.OnPropertyChanged(new PropertyChangedEventArgs(propertyName));
         }
+
 
 
     }

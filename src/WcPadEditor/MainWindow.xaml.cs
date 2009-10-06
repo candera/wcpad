@@ -21,11 +21,16 @@ namespace Wangdera.WcPadEditor
     public partial class MainWindow : Window
     {
         private PadRegionsViewModel _model;
+        private OpenFileDialog _openFileDialog = new OpenFileDialog
+            {
+                DefaultExt = ".wcpad",
+                Filter = "wcpad files (.wcpad)|*.wcpad|All Files (*.*)|*.*"
+            }; 
         private SaveFileDialog _saveFileDialog = new SaveFileDialog
             {
                 AddExtension = true,
                 DefaultExt = ".wcpad",
-                Filter = "wcpad files (.wcpad)|*.wcpad|All Files|*.*"
+                Filter = "wcpad files (.wcpad)|*.wcpad|All Files (*.*)|*.*"
             };
 
         public MainWindow()
@@ -124,7 +129,16 @@ namespace Wangdera.WcPadEditor
         }
         private void FileOpen(object sender, ExecutedRoutedEventArgs e)
         {
-            MessageBox.Show("Not yet implemented.");
+            // TODO: Detect existing model and prompt for save
+            if (_openFileDialog.ShowDialog() == true)
+            {
+                using (Stream stream = File.Open(_openFileDialog.FileName, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    _model = PadRegionsViewModel.Load(stream);
+                    DataContext = _model; 
+                }
+            }
+            
         }
         private void FileSave(object sender, ExecutedRoutedEventArgs e)
         {
