@@ -15,6 +15,7 @@ using System.Windows.Xps;
 using System.Printing;
 using Microsoft.Win32;
 using System.IO;
+using Wangdera.WcPad.Common;
 
 namespace Wangdera.WcPadEditor
 {

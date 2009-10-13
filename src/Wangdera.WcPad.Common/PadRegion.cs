@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.ComponentModel;
 
-namespace Wangdera.WcPadEditor
+namespace Wangdera.WcPad.Common
 {
-    internal class PadRegion : INotifyPropertyChanged
+    public class PadRegion : INotifyPropertyChanged
     {
         private bool _isBeingModified; 
         private int _x;

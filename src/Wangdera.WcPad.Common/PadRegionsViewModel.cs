@@ -10,9 +10,9 @@ using System.IO;
 using System.Xml.Linq;
 using System.Xml;
 
-namespace Wangdera.WcPadEditor
+namespace Wangdera.WcPad.Common
 {
-    internal class PadRegionsViewModel : ObservableCollection<PadRegion>, INotifyPropertyChanged
+    public class PadRegionsViewModel : ObservableCollection<PadRegion>, INotifyPropertyChanged
     {
         private int _borderMargin = 96 / 2;
         private int _borderPadding = 96 / 2;
@@ -144,8 +144,7 @@ namespace Wangdera.WcPadEditor
             }
         }
 
-
-        internal void MouseDown(MouseButtonEventArgs e, Point position)
+        public void MouseDown(MouseButtonEventArgs e, Point position)
         {
             if (e.ChangedButton == MouseButton.Left)
             {
@@ -153,7 +152,7 @@ namespace Wangdera.WcPadEditor
                 MouseDownPosition = position; 
             }
         }
-        internal void MouseMove(Point position)
+        public void MouseMove(Point position)
         {
             MousePosition = position;
 
@@ -166,7 +165,7 @@ namespace Wangdera.WcPadEditor
                     active = new PadRegion
                     {
                         IsBeingModified = true
-                    }; 
+                    };
 
                     Add(active);
                 }
@@ -177,7 +176,7 @@ namespace Wangdera.WcPadEditor
                 active.Height = (int)Math.Abs(MouseDownPosition.Y - position.Y);
             }
         }
-        internal void MouseUp(MouseButtonEventArgs e)
+        public void MouseUp(MouseButtonEventArgs e)
         {
             if (e.ChangedButton == MouseButton.Left)
             {
@@ -185,17 +184,17 @@ namespace Wangdera.WcPadEditor
                 PadRegion active = this.FirstOrDefault(r => r.IsBeingModified);
                 if (active != null)
                 {
-                    active.IsBeingModified = false; 
+                    active.IsBeingModified = false;
                 }
             }
         }
-        internal static PadRegionsViewModel Load(Stream stream)
+        public static PadRegionsViewModel Load(Stream stream)
         {
             using (XmlReader reader = XmlReader.Create(stream))
             {
                 XDocument doc = XDocument.Load(reader);
 
-                var model = new PadRegionsViewModel(); 
+                var model = new PadRegionsViewModel();
 
                 var border = doc.Root.Element("border");
                 model._borderMargin = int.Parse(border.Attribute("margin").Value);
@@ -206,9 +205,9 @@ namespace Wangdera.WcPadEditor
                 model._pageHeight = int.Parse(page.Attribute("height").Value);
                 model._pageWidth = int.Parse(page.Attribute("width").Value);
 
-                var regions = doc.Root.Element("regions"); 
+                var regions = doc.Root.Element("regions");
 
-                model.AddRange(regions.Elements("region").Select(r => 
+                model.AddRange(regions.Elements("region").Select(r =>
                     new PadRegion
                     {
                         X = int.Parse(r.Attribute("x").Value),
@@ -217,10 +216,10 @@ namespace Wangdera.WcPadEditor
                         Height = int.Parse(r.Attribute("height").Value),
                     }));
 
-                return model; 
+                return model;
             }
         }
-        internal void Save(Stream stream)
+        public void Save(Stream stream)
         {
             XDocument doc = new XDocument();
             doc.Add(new XElement("map",

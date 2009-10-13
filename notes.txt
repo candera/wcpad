@@ -1,26 +1,38 @@
 TODO: 
-* Detect existing file at open/new/close and prompt for save
-
 * Move code for loading file to common DLL. 
 
+* Display location of fingertip on a custom map
+
 * Set up wcpadd to read file and use to draw onscreen tracking 
+
+* Detect existing file at open/new/close and prompt for save
 
 * Move all property setters to styles. 
   * Can data-bound properties live in styles? 
 
 * Start with blank map: make user select printer and orientation to
   create new one
-* Display location of fingertip on a custom map
+
 * Loading of custom image
+
 * Printing of border with custom image and barcode
+
 * Fix problem where mouse up outside of borders does not register with viewmodel
+
 * Add unit tests
+
 * Add support for map orientation detection
+
 * Add support for multiple maps
+
   * Pad barcode
+
   * Calculation of fingertip location per-map
+
 * Performance measurement
+
 * Maybe switch the driver app to WPF? This might be helpful: 
+
   * http://www.hardcodet.net/projects/wpf-notifyicon
   
 DEFER:

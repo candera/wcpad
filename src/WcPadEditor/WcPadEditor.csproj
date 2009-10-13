@@ -73,9 +73,6 @@
   <ItemGroup>
     <Compile Include="AppCommands.cs" />
     <Compile Include="ExitCommand.cs" />
-    <Compile Include="Extensions.cs" />
-    <Compile Include="PadRegion.cs" />
-    <Compile Include="PadRegionsViewModel.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -102,6 +99,12 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="datalink-control-panel.jpg" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Wangdera.WcPad.Common\Wangdera.WcPad.Common.csproj">
+      <Project>{3C91649A-AE7D-4208-BD61-154BFBA4D3DE}</Project>
+      <Name>Wangdera.WcPad.Common</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
