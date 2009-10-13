@@ -83,6 +83,9 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="WindowsBase">
+      <RequiredTargetFramework>3.0</RequiredTargetFramework>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Form1.cs">
@@ -118,6 +121,12 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="WcPadInterop.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Wangdera.WcPad.Common\Wangdera.WcPad.Common.csproj">
+      <Project>{3C91649A-AE7D-4208-BD61-154BFBA4D3DE}</Project>
+      <Name>Wangdera.WcPad.Common</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

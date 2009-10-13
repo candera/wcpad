@@ -1,9 +1,7 @@
 TODO: 
-* Move code for loading file to common DLL. 
+* Fix orientation problem via custom transform hack
 
-* Display location of fingertip on a custom map
-
-* Set up wcpadd to read file and use to draw onscreen tracking 
+* Add real support for map orientation detection
 
 * Detect existing file at open/new/close and prompt for save
 
@@ -21,8 +19,6 @@ TODO:
 
 * Add unit tests
 
-* Add support for map orientation detection
-
 * Add support for multiple maps
 
   * Pad barcode
@@ -39,6 +35,12 @@ DEFER:
 * Fix x64 build. Probably need to get an x64 build of openCV
 
 DONE:
+* Display location of fingertip on a custom map
+
+* Set up wcpadd to read file and use to draw onscreen tracking 
+
+* Move code for loading file to common DLL. 
+
 * Be able to load an existing file. 
 
 * Be able to save regions to a file. 

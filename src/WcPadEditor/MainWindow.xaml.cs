@@ -22,7 +22,7 @@ namespace Wangdera.WcPadEditor
     public partial class MainWindow : Window
     {
         private PadRegionsViewModel _model;
-        private OpenFileDialog _openFileDialog = new OpenFileDialog
+        private readonly OpenFileDialog _openFileDialog = new OpenFileDialog
             {
                 DefaultExt = ".wcpad",
                 Filter = "wcpad files (.wcpad)|*.wcpad|All Files (*.*)|*.*"

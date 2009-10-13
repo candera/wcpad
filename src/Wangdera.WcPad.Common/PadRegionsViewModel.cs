@@ -250,8 +250,5 @@ namespace Wangdera.WcPad.Common
         {
             base.OnPropertyChanged(new PropertyChangedEventArgs(propertyName));
         }
-
-
-
     }
 }
