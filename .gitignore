@@ -1,8 +1,10 @@
 Release
 Debug DLL
+Debug EXE
 Debug
 *.user
 *.suo
 *~
 *.ncb
 #*#
+*.tmp
