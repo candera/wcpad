@@ -1625,6 +1625,8 @@ IplConvKernel* g_convKernel;
 CvSeq* g_borders;
 CvSeq* g_fingertipInfo; 
 
+int g_orientContourPolyPrecision = 10; 
+
 WCPADAPI(void) Initialize()
 {
 	g_initialized = true; 
@@ -1636,6 +1638,10 @@ WCPADAPI(void) Initialize()
 	cvNamedWindow("thresholded"); 
 	cvNamedWindow("tracking"); 
 	cvNamedWindow("fingertips"); 
+	cvNamedWindow("contour source"); 
+	cvNamedWindow("contours"); 
+
+	cvCreateTrackbar("poly", "contours", &g_orientContourPolyPrecision, 100, NULL); 
 
 	g_raw = cvQueryFrame(g_capture); 
 	cvShowImage("raw", g_raw); 
@@ -1811,6 +1817,25 @@ WCPADAPI(int) Update()
 	cvShowImage("thresholded", g_thresholded); 
 
 	cvCopy(g_thresholded, g_trackingSource); 
+
+#if 1
+	IplImage* contourImage = cvCloneImage(g_raw); 
+	IplImage* contourSource = cvCloneImage(g_l); 
+	cvThreshold(contourSource, contourSource, 192, 255, CV_THRESH_BINARY); 
+
+	cvShowImage("contour source", contourSource); 
+
+	cvScale(g_raw, contourImage, 0.25); 
+
+	CvSeq* lContours = FindContours(
+		contourSource, 
+		g_storage, 
+		(float) g_orientContourPolyPrecision / 10.0F, 
+		0.0F);		//(float) g_segmentThreshold); 
+
+	DrawContours(contourImage, lContours, CV_RGB(256, 0, 0)); 
+	cvShowImage("contours", contourImage); 
+#endif
 
 	const int maxAge = 10; 
 

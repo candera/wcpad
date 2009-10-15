@@ -1,6 +1,8 @@
 TODO: 
 * Fix orientation problem via custom transform hack
 
+* Get memory usage under control
+
 * Add real support for map orientation detection
 
 * Detect existing file at open/new/close and prompt for save
@@ -26,6 +28,8 @@ TODO:
   * Calculation of fingertip location per-map
 
 * Performance measurement
+
+* Figure out why, after printing, the map jumps to the left. 
 
 * Maybe switch the driver app to WPF? This might be helpful: 
 

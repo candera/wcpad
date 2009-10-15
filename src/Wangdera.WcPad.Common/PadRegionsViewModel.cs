@@ -14,9 +14,9 @@ namespace Wangdera.WcPad.Common
 {
     public class PadRegionsViewModel : ObservableCollection<PadRegion>, INotifyPropertyChanged
     {
-        private int _borderMargin = 96 / 2;
-        private int _borderPadding = 96 / 2;
-        private int _borderThickness = 96 / 3; 
+        private int _borderMargin = 96 / 2;     // 1/2 inch
+        private int _borderPadding = 96 / 2;    // 1/2 inch
+        private int _borderThickness = 96 / 2;  // 1/2 inch
         private bool _isLeftButtonDown;
         private Point _mouseDownPosition; 
         private Point _mousePosition;
